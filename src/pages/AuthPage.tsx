@@ -61,7 +61,7 @@ const AuthPage = () => {
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-primary-foreground">
             <Scissors className="h-7 w-7" />
           </div>
-          <CardTitle className="text-xl">Organiza Salão</CardTitle>
+          <CardTitle className="text-xl">Espaço Maria Magnólia</CardTitle>
           <CardDescription>
             {isLogin ? "Entre na sua conta" : "Crie sua conta"}
           </CardDescription>

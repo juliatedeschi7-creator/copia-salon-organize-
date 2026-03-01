@@ -4,13 +4,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSalon } from "@/contexts/SalonContext";
 import { navItems } from "@/config/navigation";
 import { cn } from "@/lib/utils";
-import { Scissors, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import { Scissors, ChevronLeft, ChevronRight, LogOut, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppRole } from "@/types";
 
 interface AppSidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 const roleLabels: Record<AppRole, string> = {
@@ -20,7 +22,7 @@ const roleLabels: Record<AppRole, string> = {
   cliente: "Cliente",
 };
 
-const AppSidebar = ({ collapsed, onToggle }: AppSidebarProps) => {
+const AppSidebar = ({ collapsed, onToggle, mobileOpen = false, onMobileClose }: AppSidebarProps) => {
   const { role, profile, signOut } = useAuth();
   const { salon } = useSalon();
   const location = useLocation();
@@ -31,7 +33,8 @@ const AppSidebar = ({ collapsed, onToggle }: AppSidebarProps) => {
     <aside
       className={cn(
         "fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-300",
-        collapsed ? "w-16" : "w-64"
+        collapsed ? "w-16" : "w-64",
+        mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}
     >
       {/* Header */}
@@ -40,10 +43,20 @@ const AppSidebar = ({ collapsed, onToggle }: AppSidebarProps) => {
           <Scissors className="h-5 w-5" />
         </div>
         {!collapsed && (
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-bold">{salon?.name || "Organiza Salão"}</h1>
-            <p className="truncate text-xs text-sidebar-foreground/60">Organiza Salão</p>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-sm font-bold">{salon?.name || "Espaço Maria Magnólia"}</h1>
+            <p className="truncate text-xs text-sidebar-foreground/60">Espaço Maria Magnólia</p>
           </div>
+        )}
+        {!collapsed && onMobileClose && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onMobileClose}
+            className="h-7 w-7 shrink-0 md:hidden text-sidebar-foreground/50 hover:text-sidebar-foreground"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         )}
       </div>
 
