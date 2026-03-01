@@ -1,0 +1,4 @@
+project_id = "kxgfpjvetdbummcsacol"
+
+[functions.appointment-reminders]
+verify_jwt = false
