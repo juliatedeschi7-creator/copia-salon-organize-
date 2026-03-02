@@ -53,11 +53,31 @@ const ClientesPage = () => {
       return;
     }
     const url = `${window.location.origin}/convite/${salon.client_link}`;
-    navigator.clipboard.writeText(url).then(() => {
-      toast.success("Link de convite copiado! Compartilhe com sua cliente.");
-    }).catch(() => {
-      toast.error("Não foi possível copiar o link.");
-    });
+
+    const fallbackCopy = () => {
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.setAttribute("readonly", "");
+      textarea.style.cssText = "position:absolute;left:-9999px;top:-9999px;";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+        toast.success("Link de convite copiado! Compartilhe com sua cliente.");
+      } catch {
+        toast.error(`Não foi possível copiar automaticamente. Link: ${url}`);
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        toast.success("Link de convite copiado! Compartilhe com sua cliente.");
+      }).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
   };
 
   if (loading) {

@@ -34,14 +34,35 @@ const ClientInvitePage = () => {
       const { data, error } = await supabase.rpc("get_salon_by_client_link", { _link: linkId });
       if (error || !data || (data as any[]).length === 0) {
         setNotFound(true);
-      } else {
-        const row = Array.isArray(data) ? data[0] : data;
-        setSalon(row as SalonInfo);
+        setLoading(false);
+        return;
       }
+      const row = Array.isArray(data) ? data[0] : data;
+      setSalon(row as SalonInfo);
+
+      // If user is already authenticated, link them to this salon directly
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const salonId = (row as SalonInfo).id;
+        const userId = session.user.id;
+        // Upsert salon membership as cliente
+        const { error: memberError } = await supabase
+          .from("salon_members")
+          .upsert({ salon_id: salonId, user_id: userId, role: "cliente" }, { onConflict: "salon_id,user_id" });
+        if (memberError) {
+          console.error("Erro ao vincular ao salão:", memberError.message);
+          toast.error("Não foi possível vincular sua conta ao salão. Tente novamente.");
+        } else {
+          toast.success("Você foi vinculado ao salão com sucesso!");
+          navigate("/cliente-area");
+          return;
+        }
+      }
+
       setLoading(false);
     };
     fetchSalon();
-  }, [linkId]);
+  }, [linkId, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
