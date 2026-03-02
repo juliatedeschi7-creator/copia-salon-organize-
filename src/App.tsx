@@ -52,6 +52,7 @@ const AppRoutes = () => {
   if (!isApproved) {
     return (
       <Routes>
+        <Route path="/convite/:linkId" element={<ClientInvitePage />} />
         <Route path="*" element={<PendingApprovalPage />} />
       </Routes>
     );
@@ -61,6 +62,7 @@ const AppRoutes = () => {
   if (role === "dono" && !salon) {
     return (
       <Routes>
+        <Route path="/convite/:linkId" element={<ClientInvitePage />} />
         <Route path="*" element={<CreateSalonPage />} />
       </Routes>
     );
@@ -68,6 +70,7 @@ const AppRoutes = () => {
 
   return (
     <Routes>
+      <Route path="/convite/:linkId" element={<ClientInvitePage />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/agenda" element={<AgendaPage />} />
