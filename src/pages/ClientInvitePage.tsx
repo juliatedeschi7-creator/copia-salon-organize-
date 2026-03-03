@@ -87,7 +87,7 @@ const ClientInvitePage = () => {
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success("Conta criada! Verifique seu e-mail para confirmar.");
+        toast.success("Conta criada com sucesso! Você já pode fazer login.");
       }
     }
     setSubmitting(false);

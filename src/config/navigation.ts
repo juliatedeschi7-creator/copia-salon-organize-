@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Bell,
   Scissors,
+  CreditCard,
   LucideIcon,
 } from "lucide-react";
 
@@ -70,6 +71,12 @@ export const navItems: NavItem[] = [
     path: "/financeiro",
     icon: DollarSign,
     roles: ["dono"],
+  },
+  {
+    label: "Contas",
+    path: "/contas",
+    icon: CreditCard,
+    roles: ["dono", "cliente"],
   },
   {
     label: "Notificações",

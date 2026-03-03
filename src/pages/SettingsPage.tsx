@@ -7,8 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Save, Clock, Bell, Palette, Loader2, Plus, X, Send } from "lucide-react";
+import { Camera, Save, Clock, Bell, Palette, Loader2, Plus, X, Send, Users, Link as LinkIcon, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -32,6 +39,12 @@ const SettingsPage = () => {
   const [notifForm, setNotifForm] = useState({ title: "", message: "", target: "all" });
   const [salonMembers, setSalonMembers] = useState<any[]>([]);
 
+  // Team invites state
+  const [teamInvites, setTeamInvites] = useState<any[]>([]);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [newInviteRole, setNewInviteRole] = useState<"dono" | "funcionario">("funcionario");
+  const [creatingInvite, setCreatingInvite] = useState(false);
+
   useEffect(() => {
     if (salon) {
       setForm({ ...salon, reminder_hours: salon.reminder_hours ?? [24, 2] });
@@ -47,6 +60,23 @@ const SettingsPage = () => {
       .eq("salon_id", salon.id)
       .eq("role", "cliente")
       .then(({ data }) => setSalonMembers(data || []));
+
+    // Load team members (dono + funcionario)
+    supabase
+      .from("salon_members")
+      .select("user_id, role, profiles(name, email)")
+      .eq("salon_id", salon.id)
+      .in("role", ["dono", "funcionario"])
+      .then(({ data }) => setTeamMembers(data || []));
+
+    // Load pending team invites
+    supabase
+      .from("team_invites")
+      .select("*")
+      .eq("salon_id", salon.id)
+      .is("used_at", null)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setTeamInvites(data || []));
   }, [salon]);
 
   if (isLoading || !form) {
@@ -87,6 +117,46 @@ const SettingsPage = () => {
     const current: number[] = reminderHours;
     const updated = current.includes(hours) ? current.filter((h) => h !== hours) : [...current, hours].sort((a, b) => b - a);
     setForm((f: any) => ({ ...f, reminder_hours: updated }));
+  };
+
+  const handleCreateTeamInvite = async () => {
+    if (!salon || !user) return;
+    setCreatingInvite(true);
+    const { data, error } = await supabase
+      .from("team_invites")
+      .insert({ salon_id: salon.id, role: newInviteRole, created_by: user.id })
+      .select()
+      .single();
+    if (error) {
+      toast.error("Erro ao criar convite: " + error.message);
+    } else {
+      setTeamInvites((prev) => [data, ...prev]);
+      const url = `${window.location.origin}/convite-equipe/${data.token}`;
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(() =>
+          toast.success("Link de convite copiado!")
+        ).catch(() => toast.info("Link criado: " + url));
+      } else {
+        toast.info("Link criado: " + url);
+      }
+    }
+    setCreatingInvite(false);
+  };
+
+  const handleDeleteTeamInvite = async (id: string) => {
+    const { error } = await supabase.from("team_invites").delete().eq("id", id);
+    if (error) toast.error("Erro ao excluir: " + error.message);
+    else setTeamInvites((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  const handleCopyInviteToken = (token: string) => {
+    const url = `${window.location.origin}/convite-equipe/${token}`;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(() => toast.success("Link copiado!"))
+        .catch(() => toast.info("Link: " + url));
+    } else {
+      toast.info("Link: " + url);
+    }
   };
 
   const handleSave = async () => {
@@ -148,6 +218,7 @@ const SettingsPage = () => {
           <TabsTrigger value="horarios">Horários</TabsTrigger>
           <TabsTrigger value="visual">Visual</TabsTrigger>
           <TabsTrigger value="notificacoes">Notificações</TabsTrigger>
+          <TabsTrigger value="equipe">Equipe</TabsTrigger>
           <TabsTrigger value="enviar">Enviar Mensagem</TabsTrigger>
         </TabsList>
 
@@ -341,6 +412,103 @@ const SettingsPage = () => {
                 <p className="text-xs text-muted-foreground">
                   Lembretes ativos: {reminderHours.sort((a, b) => b - a).map((h) => `${h}h antes`).join(", ")}
                 </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="equipe" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Users className="h-5 w-5 text-primary" />
+                Membros da Equipe
+              </CardTitle>
+              <CardDescription>Donos e funcionários vinculados ao salão</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {teamMembers.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">Nenhum membro cadastrado.</p>
+              ) : (
+                <div className="space-y-2">
+                  {teamMembers.map((m: any) => (
+                    <div key={m.user_id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                      <div>
+                        <p className="text-sm font-medium">{m.profiles?.name || m.profiles?.email || m.user_id}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{m.role === "dono" ? "Dono" : "Funcionário"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Plus className="h-5 w-5 text-primary" />
+                Convidar Membro
+              </CardTitle>
+              <CardDescription>Gere um link de convite de uso único para um dono ou funcionário</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-end gap-3">
+                <div className="space-y-2 flex-1">
+                  <Label>Cargo</Label>
+                  <Select
+                    value={newInviteRole}
+                    onValueChange={(v) => setNewInviteRole(v as "dono" | "funcionario")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="funcionario">Funcionário</SelectItem>
+                      <SelectItem value="dono">Dono</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  className="gap-2 shrink-0"
+                  onClick={handleCreateTeamInvite}
+                  disabled={creatingInvite}
+                >
+                  {creatingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
+                  Gerar link
+                </Button>
+              </div>
+
+              {teamInvites.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Convites pendentes</p>
+                  {teamInvites.map((inv: any) => (
+                    <div key={inv.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                      <div>
+                        <p className="text-sm font-medium capitalize">{inv.role === "dono" ? "Dono" : "Funcionário"}</p>
+                        <p className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">{inv.token}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => handleCopyInviteToken(inv.token)}
+                        >
+                          <LinkIcon className="h-3 w-3" /> Copiar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => handleDeleteTeamInvite(inv.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
