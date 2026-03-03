@@ -23,6 +23,8 @@ import AdminPage from "@/pages/AdminPage";
 import EmployeePage from "@/pages/EmployeePage";
 import ClientAreaPage from "@/pages/ClientAreaPage";
 import ClientInvitePage from "@/pages/ClientInvitePage";
+import TeamInvitePage from "@/pages/TeamInvitePage";
+import ContasPage from "@/pages/ContasPage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -44,6 +46,7 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/convite/:linkId" element={<ClientInvitePage />} />
+        <Route path="/convite-equipe/:token" element={<TeamInvitePage />} />
         <Route path="*" element={<AuthPage />} />
       </Routes>
     );
@@ -53,6 +56,7 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/convite/:linkId" element={<ClientInvitePage />} />
+        <Route path="/convite-equipe/:token" element={<TeamInvitePage />} />
         <Route path="*" element={<PendingApprovalPage />} />
       </Routes>
     );
@@ -63,6 +67,7 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/convite/:linkId" element={<ClientInvitePage />} />
+        <Route path="/convite-equipe/:token" element={<TeamInvitePage />} />
         <Route path="*" element={<CreateSalonPage />} />
       </Routes>
     );
@@ -71,6 +76,7 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/convite/:linkId" element={<ClientInvitePage />} />
+      <Route path="/convite-equipe/:token" element={<TeamInvitePage />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/agenda" element={<AgendaPage />} />
@@ -80,6 +86,7 @@ const AppRoutes = () => {
         <Route path="/pacotes" element={<PacotesPage />} />
         <Route path="/estoque" element={<EstoquePage />} />
         <Route path="/financeiro" element={<FinanceiroPage />} />
+        <Route path="/contas" element={<ContasPage />} />
         <Route path="/configuracoes" element={<SettingsPage />} />
         <Route path="/notificacoes" element={<NotificationsPage />} />
         <Route path="/admin" element={<AdminPage />} />
