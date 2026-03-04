@@ -105,6 +105,16 @@ const ContasPage = () => {
   const [paymentNotes, setPaymentNotes] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
 
+  // Avulso payment dialog
+  const [showAvulsoDialog, setShowAvulsoDialog] = useState(false);
+  const [avulsoForm, setAvulsoForm] = useState({
+    client_user_id: "",
+    amount: "",
+    payment_date: new Date().toISOString().split("T")[0],
+    notes: "",
+  });
+  const [savingAvulso, setSavingAvulso] = useState(false);
+
   const fetchData = useCallback(async () => {
     if (!salon && isOwner) { setLoading(false); return; }
     if (!user) { setLoading(false); return; }
@@ -230,6 +240,38 @@ const ContasPage = () => {
     setSavingPayment(false);
   };
 
+  const handleCreateAvulsoPayment = async () => {
+    if (!salon || !user) return;
+    if (!avulsoForm.client_user_id || !avulsoForm.amount || !avulsoForm.payment_date) {
+      toast.error("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    setSavingAvulso(true);
+    const { error } = await supabase.from("payments").insert({
+      charge_id: null,
+      salon_id: salon.id,
+      client_user_id: avulsoForm.client_user_id,
+      amount: parseFloat(avulsoForm.amount),
+      payment_date: avulsoForm.payment_date,
+      notes: avulsoForm.notes || "",
+      created_by: user.id,
+    });
+    if (error) {
+      toast.error("Erro ao registrar pagamento: " + error.message);
+    } else {
+      toast.success("Pagamento avulso registrado!");
+      setShowAvulsoDialog(false);
+      setAvulsoForm({
+        client_user_id: "",
+        amount: "",
+        payment_date: new Date().toISOString().split("T")[0],
+        notes: "",
+      });
+      fetchData();
+    }
+    setSavingAvulso(false);
+  };
+
   const handleCancelCharge = async (charge: Charge) => {
     if (!confirm(`Cancelar cobrança "${charge.description}"?`)) return;
     const { error } = await supabase
@@ -252,6 +294,11 @@ const ContasPage = () => {
   const paidCharges = charges.filter((c) => c.status === "pago");
   const cancelledCharges = charges.filter((c) => c.status === "cancelado");
 
+  const avulsoPayments = payments.filter((p) => p.charge_id === null);
+  const avulsoTotal = avulsoPayments.reduce((s, p) => s + Number(p.amount), 0);
+  const pendingTotal = pendingCharges.reduce((s, c) => s + Number(c.amount), 0);
+  const pendingBalance = Math.max(0, pendingTotal - avulsoTotal);
+
   const clientLabel = (c: Charge) => {
     if (isOwner) {
       return (c as any).profiles?.name || (c as any).profiles?.email || c.client_user_id;
@@ -269,9 +316,14 @@ const ContasPage = () => {
           </p>
         </div>
         {isOwner && (
-          <Button className="gap-2" onClick={() => setShowChargeDialog(true)}>
-            <Plus className="h-4 w-4" /> Nova cobrança
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => setShowAvulsoDialog(true)}>
+              <Plus className="h-4 w-4" /> Novo pagamento
+            </Button>
+            <Button className="gap-2" onClick={() => setShowChargeDialog(true)}>
+              <Plus className="h-4 w-4" /> Nova cobrança
+            </Button>
+          </div>
         )}
       </div>
 
@@ -311,9 +363,14 @@ const ContasPage = () => {
               </div>
               <div>
                 <p className="text-2xl font-bold">
-                  R$ {pendingCharges.reduce((s, c) => s + Number(c.amount), 0).toFixed(2)}
+                  R$ {pendingBalance.toFixed(2)}
                 </p>
                 <p className="text-xs text-muted-foreground">A receber</p>
+                {avulsoTotal > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    (−R$ {avulsoTotal.toFixed(2)} pagamentos avulsos)
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -403,10 +460,22 @@ const ContasPage = () => {
                 >
                   <div className="space-y-0.5">
                     {isOwner && (() => {
-                      const charge = charges.find((c) => c.id === p.charge_id);
-                      return charge ? (
-                        <p className="text-xs text-muted-foreground">{clientLabel(charge)}</p>
-                      ) : null;
+                      if (p.charge_id) {
+                        const charge = charges.find((c) => c.id === p.charge_id);
+                        return charge ? (
+                          <p className="text-xs text-muted-foreground">{clientLabel(charge)}</p>
+                        ) : null;
+                      }
+                      // avulso payment: look up client directly
+                      const client = clients.find((c) => c.user_id === p.client_user_id);
+                      return client ? (
+                        <p className="text-xs text-muted-foreground">
+                          {client.name || client.email || p.client_user_id}
+                          {" · "}<span className="italic">avulso</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">avulso</p>
+                      );
                     })()}
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <CheckCircle className="h-3 w-3 text-green-500" />
@@ -569,6 +638,75 @@ const ContasPage = () => {
             <Button onClick={handleMarkPaid} disabled={savingPayment} className="gap-2">
               {savingPayment && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirmar pagamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Avulso payment dialog */}
+      <Dialog open={showAvulsoDialog} onOpenChange={setShowAvulsoDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Novo Pagamento Avulso</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Cliente *</Label>
+              <Select
+                value={avulsoForm.client_user_id}
+                onValueChange={(v) => setAvulsoForm({ ...avulsoForm, client_user_id: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((c) => (
+                    <SelectItem key={c.user_id} value={c.user_id}>
+                      {c.name || c.email || c.user_id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {clients.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhuma cliente cadastrada.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Valor (R$) *</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0,00"
+                value={avulsoForm.amount}
+                onChange={(e) => setAvulsoForm({ ...avulsoForm, amount: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Data *</Label>
+              <Input
+                type="date"
+                value={avulsoForm.payment_date}
+                onChange={(e) => setAvulsoForm({ ...avulsoForm, payment_date: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Observações (opcional)</Label>
+              <Textarea
+                placeholder="Ex: Pagamento adiantado via Pix"
+                value={avulsoForm.notes}
+                onChange={(e) => setAvulsoForm({ ...avulsoForm, notes: e.target.value })}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAvulsoDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateAvulsoPayment} disabled={savingAvulso} className="gap-2">
+              {savingAvulso && <Loader2 className="h-4 w-4 animate-spin" />}
+              Registrar pagamento
             </Button>
           </DialogFooter>
         </DialogContent>
