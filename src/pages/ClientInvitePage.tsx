@@ -133,7 +133,9 @@ const ClientInvitePage = () => {
           )}
           <CardTitle className="text-xl">{salon?.name}</CardTitle>
           <CardDescription>
-            {isLogin ? "Entre na sua conta de cliente" : "Crie sua conta para agendar"}
+            {isLogin
+              ? "Entre na sua conta de cliente"
+              : "Crie sua conta para agendar, conferir o catálogo de serviços, visualizar a evolução dos seus pacotes e interagir com o salão"}
           </CardDescription>
         </CardHeader>
         <CardContent>
