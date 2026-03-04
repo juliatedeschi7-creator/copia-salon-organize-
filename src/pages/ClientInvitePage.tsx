@@ -132,9 +132,19 @@ const ClientInvitePage = () => {
             </div>
           )}
           <CardTitle className="text-xl">{salon?.name}</CardTitle>
-          <CardDescription>
-            {isLogin ? "Entre na sua conta de cliente" : "Crie sua conta para agendar"}
+          <CardDescription className="mt-1">
+            {isLogin
+              ? "Entre na sua conta de cliente"
+              : "Crie sua conta e acesse sua área exclusiva"}
           </CardDescription>
+          {!isLogin && (
+            <ul className="mt-3 space-y-1 text-left text-xs text-muted-foreground">
+              <li>📅 Agende atendimentos com facilidade</li>
+              <li>💆 Confira o catálogo de serviços do salão</li>
+              <li>📦 Acompanhe o uso e evolução dos seus pacotes</li>
+              <li>🔔 Receba notificações e comunicados do salão</li>
+            </ul>
+          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

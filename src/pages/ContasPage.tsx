@@ -105,6 +105,16 @@ const ContasPage = () => {
   const [paymentNotes, setPaymentNotes] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
 
+  // Avulso payment dialog
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    client_user_id: "",
+    amount: "",
+    payment_date: new Date().toISOString().split("T")[0],
+    notes: "",
+  });
+  const [savingAvulso, setSavingAvulso] = useState(false);
+
   const fetchData = useCallback(async () => {
     if (!salon && isOwner) { setLoading(false); return; }
     if (!user) { setLoading(false); return; }
@@ -240,6 +250,33 @@ const ContasPage = () => {
     else { toast.success("Cobrança cancelada."); fetchData(); }
   };
 
+  const handleCreateAvulsoPayment = async () => {
+    if (!salon || !user) return;
+    if (!paymentForm.client_user_id || !paymentForm.amount || !paymentForm.payment_date) {
+      toast.error("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    setSavingAvulso(true);
+    const { error } = await supabase.from("payments").insert({
+      charge_id: null,
+      salon_id: salon.id,
+      client_user_id: paymentForm.client_user_id,
+      amount: parseFloat(paymentForm.amount),
+      payment_date: paymentForm.payment_date,
+      notes: paymentForm.notes || "",
+      created_by: user.id,
+    });
+    if (error) {
+      toast.error("Erro ao registrar pagamento: " + error.message);
+    } else {
+      toast.success("Pagamento avulso registrado!");
+      setShowPaymentDialog(false);
+      setPaymentForm({ client_user_id: "", amount: "", payment_date: new Date().toISOString().split("T")[0], notes: "" });
+      fetchData();
+    }
+    setSavingAvulso(false);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -251,6 +288,12 @@ const ContasPage = () => {
   const pendingCharges = charges.filter((c) => c.status === "pendente");
   const paidCharges = charges.filter((c) => c.status === "pago");
   const cancelledCharges = charges.filter((c) => c.status === "cancelado");
+
+  const pendingTotal = pendingCharges.reduce((s, c) => s + Number(c.amount), 0);
+  const unallocatedPaymentsTotal = payments
+    .filter((p) => p.charge_id === null)
+    .reduce((s, p) => s + Number(p.amount), 0);
+  const aReceber = Math.max(0, pendingTotal - unallocatedPaymentsTotal);
 
   const clientLabel = (c: Charge) => {
     if (isOwner) {
@@ -269,9 +312,14 @@ const ContasPage = () => {
           </p>
         </div>
         {isOwner && (
-          <Button className="gap-2" onClick={() => setShowChargeDialog(true)}>
-            <Plus className="h-4 w-4" /> Nova cobrança
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => setShowPaymentDialog(true)}>
+              <Receipt className="h-4 w-4" /> Novo pagamento
+            </Button>
+            <Button className="gap-2" onClick={() => setShowChargeDialog(true)}>
+              <Plus className="h-4 w-4" /> Nova cobrança
+            </Button>
+          </div>
         )}
       </div>
 
@@ -311,9 +359,14 @@ const ContasPage = () => {
               </div>
               <div>
                 <p className="text-2xl font-bold">
-                  R$ {pendingCharges.reduce((s, c) => s + Number(c.amount), 0).toFixed(2)}
+                  R$ {aReceber.toFixed(2)}
                 </p>
                 <p className="text-xs text-muted-foreground">A receber</p>
+                {unallocatedPaymentsTotal > 0 && (
+                  <p className="text-xs text-green-600">
+                    − R$ {unallocatedPaymentsTotal.toFixed(2)} pagamentos avulsos
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -569,6 +622,75 @@ const ContasPage = () => {
             <Button onClick={handleMarkPaid} disabled={savingPayment} className="gap-2">
               {savingPayment && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirmar pagamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Avulso payment dialog */}
+      <Dialog open={showPaymentDialog} onOpenChange={(o) => { if (!o) setShowPaymentDialog(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Novo Pagamento Avulso</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Cliente *</Label>
+              <Select
+                value={paymentForm.client_user_id}
+                onValueChange={(v) => setPaymentForm({ ...paymentForm, client_user_id: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((c) => (
+                    <SelectItem key={c.user_id} value={c.user_id}>
+                      {c.name || c.email || c.user_id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {clients.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhuma cliente cadastrada.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Valor (R$) *</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0,00"
+                value={paymentForm.amount}
+                onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Data do pagamento *</Label>
+              <Input
+                type="date"
+                value={paymentForm.payment_date}
+                onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Observações (opcional)</Label>
+              <Textarea
+                placeholder="Ex: Pago via Pix"
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateAvulsoPayment} disabled={savingAvulso} className="gap-2">
+              {savingAvulso && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Registrar pagamento
             </Button>
           </DialogFooter>
         </DialogContent>
