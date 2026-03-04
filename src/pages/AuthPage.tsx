@@ -65,6 +65,15 @@ const AuthPage = () => {
           <CardDescription>
             {isLogin ? "Entre na sua conta" : "Crie sua conta"}
           </CardDescription>
+          {isLogin ? (
+            <p className="text-xs text-muted-foreground">
+              Acesse seus agendamentos, confira o catálogo de serviços, acompanhe a evolução de pacotes e interaja com o salão.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Crie sua conta e comece a agendar, conferir o catálogo de serviços, visualizar a evolução dos seus pacotes e se relacionar com o salão.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
