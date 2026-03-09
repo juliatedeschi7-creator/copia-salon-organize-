@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SalonProvider, useSalon } from "@/contexts/SalonContext";
 import AppLayout from "@/components/AppLayout";
@@ -42,6 +42,7 @@ const AppRoutes = () => {
     );
   }
 
+  // Não logado
   if (!isAuthenticated) {
     return (
       <Routes>
@@ -52,7 +53,8 @@ const AppRoutes = () => {
     );
   }
 
-  if (!isApproved) {
+  // Só bloqueia se NÃO for aprovado E NÃO for admin
+  if (!isApproved && role !== "admin") {
     return (
       <Routes>
         <Route path="/convite/:linkId" element={<ClientInvitePage />} />
@@ -62,7 +64,7 @@ const AppRoutes = () => {
     );
   }
 
-  // Dono without a salon → create one
+  // Dono sem salão
   if (role === "dono" && !salon) {
     return (
       <Routes>
@@ -77,6 +79,7 @@ const AppRoutes = () => {
     <Routes>
       <Route path="/convite/:linkId" element={<ClientInvitePage />} />
       <Route path="/convite-equipe/:token" element={<TeamInvitePage />} />
+
       <Route element={<AppLayout />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/agenda" element={<AgendaPage />} />
@@ -93,6 +96,7 @@ const AppRoutes = () => {
         <Route path="/minha-agenda" element={<EmployeePage />} />
         <Route path="/cliente-area" element={<ClientAreaPage />} />
       </Route>
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
