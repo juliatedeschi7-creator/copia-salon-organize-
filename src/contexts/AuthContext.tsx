@@ -62,24 +62,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session: Session | null) => {
-        if (session?.user) {
-          setUser(session.user);
-          // Use setTimeout to avoid Supabase auth deadlock
-          setTimeout(() => {
-            fetchProfile(session.user.id);
-            fetchRoles(session.user.id);
-            setIsLoading(false);
-          }, 0);
-        } else {
-          setUser(null);
-          setProfile(null);
-          setRoles([]);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session: Session | null) => {
+      if (session?.user) {
+        setUser(session.user);
+        // Use setTimeout to avoid Supabase auth deadlock
+        setTimeout(() => {
+          fetchProfile(session.user.id);
+          fetchRoles(session.user.id);
           setIsLoading(false);
-        }
+        }, 0);
+      } else {
+        setUser(null);
+        setProfile(null);
+        setRoles([]);
+        setIsLoading(false);
       }
-    );
+    });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -93,31 +91,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Subscribe to real-time changes on the user's profile
+  useEffect(() => {
+    if (!user?.id) return;
+    const profileSubscription = supabase
+      .channel('profiles')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          // Update profile when approval status changes
+          const updatedProfile = payload.new as Profile;
+          setProfile(updatedProfile);
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(profileSubscription);
+    };
+  }, [user?.id]);
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
   // Primary role: admin > dono > funcionario > cliente
-  const role: AppRole = roles.includes("admin")
-    ? "admin"
-    : roles.includes("dono")
-    ? "dono"
-    : roles.includes("funcionario")
-    ? "funcionario"
-    : "cliente";
+  const role: AppRole = roles.includes("admin") ? "admin" : roles.includes("dono") ? "dono" : roles.includes("funcionario") ? "funcionario" : "cliente";
 
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        role,
-        roles,
-        isAuthenticated: !!user,
-        isApproved: profile?.is_approved ?? false,
-        isLoading,
-        signOut,
-      }}
+      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved: profile?.is_approved ?? false, isLoading, signOut }}
     >
       {children}
     </AuthContext.Provider>
