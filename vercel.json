@@ -1,4 +1,9 @@
 {
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "env": {
+    "SKIP_ENV_VALIDATION": "true"
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/" }
   ]
