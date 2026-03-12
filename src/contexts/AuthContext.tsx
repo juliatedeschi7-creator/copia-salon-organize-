@@ -11,6 +11,10 @@ interface Profile {
   phone: string;
   avatar_url: string | null;
   is_approved: boolean;
+  access_state: 'active' | 'notice' | 'blocked';
+  access_message: string;
+  notice_until: string | null;
+  deleted_at: string | null;
 }
 
 interface AuthContextType {
