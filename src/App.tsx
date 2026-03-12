@@ -8,6 +8,7 @@ import { SalonProvider, useSalon } from "@/contexts/SalonContext";
 import AppLayout from "@/components/AppLayout";
 import AuthPage from "@/pages/AuthPage";
 import PendingApprovalPage from "@/pages/PendingApprovalPage";
+import BlockedAccessPage from "@/pages/BlockedAccessPage";
 import CreateSalonPage from "@/pages/CreateSalonPage";
 import DashboardPage from "@/pages/DashboardPage";
 import AgendaPage from "@/pages/AgendaPage";
@@ -31,7 +32,7 @@ import { Loader2 } from "lucide-react";
 const queryClient = new QueryClient();
 
 const AppRoutes = () => {
-  const { isAuthenticated, isApproved, isLoading, role } = useAuth();
+  const { isAuthenticated, isApproved, isLoading, role, profile } = useAuth();
   const { salon, isLoading: salonLoading } = useSalon();
 
   if (isLoading || (isAuthenticated && salonLoading)) {
@@ -62,6 +63,45 @@ const AppRoutes = () => {
         <Route path="*" element={<PendingApprovalPage />} />
       </Routes>
     );
+  }
+
+  // Conta excluída (soft delete) - não admin
+  if (profile?.deleted_at && role !== "admin") {
+    return (
+      <Routes>
+        <Route path="*" element={
+          <BlockedAccessPage
+            title="Conta desativada"
+            description="Sua conta foi desativada pelo administrador."
+            message={profile.access_message || undefined}
+          />
+        } />
+      </Routes>
+    );
+  }
+
+  // Acesso bloqueado - não admin
+  if (role !== "admin") {
+    const isBlocked = profile?.access_state === "blocked";
+    const isNoticeExpired =
+      profile?.access_state === "notice" &&
+      profile?.notice_until !== null &&
+      profile?.notice_until !== undefined &&
+      new Date(profile.notice_until) < new Date();
+
+    if (isBlocked || isNoticeExpired) {
+      return (
+        <Routes>
+          <Route path="*" element={
+            <BlockedAccessPage
+              title="Acesso bloqueado"
+              description="Seu acesso ao sistema foi bloqueado pelo administrador."
+              message={profile?.access_message || undefined}
+            />
+          } />
+        </Routes>
+      );
+    }
   }
 
   // Dono sem salão
