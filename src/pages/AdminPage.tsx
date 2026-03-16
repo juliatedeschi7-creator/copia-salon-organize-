@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +30,9 @@ type ProfileRole = "admin" | "dono" | "funcionario" | "cliente";
 // Valid status values used in the app
 type ProfileStatus = "pending" | "approved";
 
+// Roles allowed when approving a user
+type ApprovalRole = "dono" | "funcionario";
+
 // Matches the actual profiles table columns in the database
 interface ProfileRow {
   id: string;
@@ -41,6 +45,11 @@ interface ProfileRow {
   updated_at: string | null;
 }
 
+interface SalonRow {
+  id: string;
+  name: string;
+}
+
 const ROLE_LABELS: Record<ProfileRole, string> = {
   admin: "Admin",
   dono: "Dono",
@@ -48,12 +57,17 @@ const ROLE_LABELS: Record<ProfileRole, string> = {
   cliente: "Cliente",
 };
 
+const APPROVAL_ROLE_LABELS: Record<ApprovalRole, string> = {
+  dono: "Dono",
+  funcionario: "Funcionário",
+};
+
 const STATUS_LABELS: Record<ProfileStatus | string, string> = {
   pending: "Pendente",
   approved: "Aprovado",
 };
 
-type ModalType = "edit" | null;
+type ModalType = "edit" | "approve" | null;
 
 const AdminPage = () => {
   const { toast } = useToast();
@@ -70,6 +84,13 @@ const AdminPage = () => {
   });
   const [saving, setSaving] = useState(false);
 
+  // Approval modal state
+  const [salons, setSalons] = useState<SalonRow[]>([]);
+  const [loadingSalons, setLoadingSalons] = useState(false);
+  const [approvalRole, setApprovalRole] = useState<ApprovalRole | "">("");
+  const [approvalSalonId, setApprovalSalonId] = useState("");
+  const [approving, setApproving] = useState(false);
+
   // Fetch all profiles using only existing schema columns
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
@@ -85,6 +106,21 @@ const AdminPage = () => {
     setLoading(false);
   }, [toast]);
 
+  // Fetch salons for the approval modal selector
+  const fetchSalons = useCallback(async () => {
+    setLoadingSalons(true);
+    const { data, error } = await supabase
+      .from("salons")
+      .select("id, name")
+      .order("name");
+    if (error) {
+      toast({ title: "Erro ao carregar salões", description: error.message, variant: "destructive" });
+    } else {
+      setSalons((data ?? []) as SalonRow[]);
+    }
+    setLoadingSalons(false);
+  }, [toast]);
+
   useEffect(() => {
     fetchProfiles();
   }, [fetchProfiles]);
@@ -98,23 +134,90 @@ const AdminPage = () => {
     setModal("edit");
   };
 
+  const openApproveModal = (profile: ProfileRow) => {
+    setSelectedProfile(profile);
+    setApprovalRole("");
+    setApprovalSalonId("");
+    setModal("approve");
+    fetchSalons();
+  };
+
   const closeModal = () => {
     setModal(null);
     setSelectedProfile(null);
   };
 
-  // Approve: set status = 'approved' and approved_at = now()
-  const handleApprove = async (profile: ProfileRow) => {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ status: "approved", approved_at: new Date().toISOString() })
-      .eq("id", profile.id);
-    if (error) {
-      toast({ title: "Erro ao aprovar", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Usuário aprovado com sucesso!" });
-      fetchProfiles();
+  // Approve: requires role (dono/funcionario) and salon selection
+  // Updates profiles AND upserts salon_members atomically as best-effort
+  const handleApproveWithRoleAndSalon = async () => {
+    if (!selectedProfile) return;
+    if (!approvalRole) {
+      toast({ title: "Selecione o perfil (Dono ou Funcionário) antes de aprovar.", variant: "destructive" });
+      return;
     }
+    if (!approvalSalonId) {
+      toast({ title: "Selecione o salão antes de aprovar.", variant: "destructive" });
+      return;
+    }
+
+    setApproving(true);
+
+    // Step 1: update profiles
+    const { data: updatedProfiles, error: profileError } = await supabase
+      .from("profiles")
+      .update({
+        status: "approved",
+        approved_at: new Date().toISOString(),
+        role: approvalRole,
+      })
+      .eq("id", selectedProfile.id)
+      .select("id");
+
+    if (profileError) {
+      setApproving(false);
+      toast({
+        title: "Erro ao aprovar usuário",
+        description: profileError.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!updatedProfiles || updatedProfiles.length === 0) {
+      setApproving(false);
+      toast({
+        title: "Aprovação não aplicada",
+        description: "Nenhuma linha foi atualizada. Verifique as permissões (RLS) do banco de dados.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Step 2: upsert salon_members
+    const { error: memberError } = await supabase
+      .from("salon_members")
+      .upsert(
+        { salon_id: approvalSalonId, user_id: selectedProfile.id, role: approvalRole },
+        { onConflict: "salon_id,user_id" }
+      );
+
+    if (memberError) {
+      setApproving(false);
+      // Profile was approved but membership failed — report error clearly
+      toast({
+        title: "Usuário aprovado, mas erro ao vincular ao salão",
+        description: `${memberError.message}. O perfil foi aprovado, mas a associação ao salão falhou. Corrija manualmente em 'salon_members'.`,
+        variant: "destructive",
+      });
+      closeModal();
+      fetchProfiles();
+      return;
+    }
+
+    setApproving(false);
+    toast({ title: "Usuário aprovado e vinculado ao salão com sucesso!" });
+    closeModal();
+    fetchProfiles();
   };
 
   // Revoke approval: set status = 'pending' and clear approved_at
@@ -191,7 +294,7 @@ const AdminPage = () => {
         <td className="px-4 py-3">
           <div className="flex flex-wrap gap-1">
             {!isApproved(p) ? (
-              <Button size="sm" variant="default" onClick={() => handleApprove(p)} className="gap-1">
+              <Button size="sm" variant="default" onClick={() => openApproveModal(p)} className="gap-1">
                 <CheckCircle className="h-3 w-3" />
                 Aprovar
               </Button>
@@ -299,6 +402,77 @@ const AdminPage = () => {
             <Button onClick={handleSaveEdit} disabled={saving}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Aprovar usuário — exige role e salão */}
+      <Dialog open={modal === "approve"} onOpenChange={(open) => !open && closeModal()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Aprovar usuário</DialogTitle>
+            <DialogDescription>
+              Selecione o perfil e o salão para{" "}
+              <strong>{selectedProfile?.full_name || selectedProfile?.email}</strong> antes de aprovar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="approval-role">
+                Perfil <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={approvalRole}
+                onValueChange={(v) => setApprovalRole(v as ApprovalRole)}
+              >
+                <SelectTrigger id="approval-role">
+                  <SelectValue placeholder="Selecione Dono ou Funcionário" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(APPROVAL_ROLE_LABELS) as ApprovalRole[]).map((r) => (
+                    <SelectItem key={r} value={r}>{APPROVAL_ROLE_LABELS[r]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="approval-salon">
+                Salão <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={approvalSalonId}
+                onValueChange={setApprovalSalonId}
+                disabled={loadingSalons}
+              >
+                <SelectTrigger id="approval-salon">
+                  {loadingSalons ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Carregando salões…
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="Selecione o salão" />
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  {salons.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {salons.length === 0 && !loadingSalons && (
+                <p className="text-xs text-muted-foreground">Nenhum salão cadastrado no sistema.</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeModal} disabled={approving}>Cancelar</Button>
+            <Button
+              onClick={handleApproveWithRoleAndSalon}
+              disabled={approving || !approvalRole || !approvalSalonId}
+            >
+              {approving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirmar Aprovação
             </Button>
           </DialogFooter>
         </DialogContent>
