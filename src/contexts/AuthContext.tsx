@@ -5,16 +5,16 @@ import type { User, Session } from "@supabase/supabase-js";
 
 interface Profile {
   id: string;
-  user_id: string;
-  name: string;
-  email: string;
-  phone: string;
-  avatar_url: string | null;
-  is_approved: boolean;
-  access_state: 'active' | 'notice' | 'blocked';
-  access_message: string;
-  notice_until: string | null;
-  deleted_at: string | null;
+  full_name: string | null;
+  email: string | null;
+  role: AppRole | null;
+  status: "pending" | "approved" | null;
+  approved_at: string | null;
+  // Optional legacy/extended fields (may not exist in all deployments)
+  deleted_at?: string | null;
+  access_state?: string | null;
+  access_message?: string | null;
+  notice_until?: string | null;
 }
 
 interface AuthContextType {
@@ -51,7 +51,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data } = await supabase
       .from("profiles")
       .select("*")
-      .eq("user_id", userId)
+      .eq("id", userId)
       .maybeSingle();
     setProfile(data as Profile | null);
   };
@@ -102,7 +102,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .channel('profiles')
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `user_id=eq.${user.id}` },
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
         (payload) => {
           // Update profile when approval status changes
           const updatedProfile = payload.new as Profile;
@@ -119,12 +119,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await supabase.auth.signOut();
   };
 
-  // Primary role: admin > dono > funcionario > cliente
-  const role: AppRole = roles.includes("admin") ? "admin" : roles.includes("dono") ? "dono" : roles.includes("funcionario") ? "funcionario" : "cliente";
+  // Primary role: admin > dono > funcionario > cliente — falls back to profile.role if user_roles is empty
+  const role: AppRole = roles.includes("admin") ? "admin" : roles.includes("dono") ? "dono" : roles.includes("funcionario") ? "funcionario" : roles.includes("cliente") ? "cliente" : profile?.role ?? "cliente";
+
+  const isApproved = profile?.status === "approved" || !!profile?.approved_at;
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved: profile?.is_approved ?? false, isLoading, signOut }}
+      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, signOut }}
     >
       {children}
     </AuthContext.Provider>
