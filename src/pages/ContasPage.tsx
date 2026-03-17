@@ -43,7 +43,7 @@ interface Charge {
   due_date: string | null;
   status: "pendente" | "pago" | "cancelado";
   created_at: string;
-  profiles?: { name: string | null; email: string | null } | null;
+  profiles?: { full_name: string | null; email: string | null } | null;
 }
 
 interface Payment {
@@ -125,7 +125,7 @@ const ContasPage = () => {
       // Fetch all charges for this salon (with client profile)
       const { data: chargesData, error: chargesErr } = await supabase
         .from("charges")
-        .select("*, profiles(name, email)")
+        .select("*, profiles(full_name, email)")
         .eq("salon_id", salon.id)
         .order("created_at", { ascending: false });
 
@@ -145,14 +145,14 @@ const ContasPage = () => {
       // Fetch client list for the selector
       const { data: membersData } = await supabase
         .from("salon_members")
-        .select("user_id, profiles(name, email)")
+        .select("user_id, profiles(full_name, email)")
         .eq("salon_id", salon.id)
         .eq("role", "cliente");
 
       setClients(
         (membersData ?? []).map((m: any) => ({
           user_id: m.user_id,
-          name: m.profiles?.name ?? null,
+          name: m.profiles?.full_name ?? null,
           email: m.profiles?.email ?? null,
         }))
       );
@@ -297,7 +297,7 @@ const ContasPage = () => {
 
   const clientLabel = (c: Charge) => {
     if (isOwner) {
-      return (c as any).profiles?.name || (c as any).profiles?.email || c.client_user_id;
+      return (c as any).profiles?.full_name || (c as any).profiles?.email || c.client_user_id;
     }
     return null;
   };

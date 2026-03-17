@@ -36,7 +36,7 @@ interface Package {
 
 interface SalonClient {
   user_id: string;
-  profiles: { name: string; email: string } | null;
+  profiles: { full_name: string; email: string } | null;
 }
 
 const PacotesPage = () => {
@@ -76,7 +76,7 @@ const PacotesPage = () => {
       supabase.from("services").select("id, name, is_active").eq("salon_id", salon.id).eq("is_active", true).order("name"),
       supabase
         .from("salon_members")
-        .select("user_id, profiles(name, email)")
+        .select("user_id, profiles(full_name, email)")
         .eq("salon_id", salon.id)
         .eq("role", "cliente"),
     ]);
@@ -420,7 +420,7 @@ const PacotesPage = () => {
                   <SelectContent>
                     {clients.map((c) => (
                       <SelectItem key={c.user_id} value={c.user_id}>
-                        {c.profiles?.name ?? c.user_id}{c.profiles?.email ? ` — ${c.profiles.email}` : ""}
+                        {c.profiles?.full_name ?? c.user_id}{c.profiles?.email ? ` — ${c.profiles.email}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

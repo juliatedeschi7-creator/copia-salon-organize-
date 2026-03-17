@@ -22,7 +22,7 @@ const ClientesPage = () => {
     if (!salon) return;
     const { data, error } = await supabase
       .from("salon_members")
-      .select("user_id, profiles(name, phone, email)")
+      .select("user_id, profiles(full_name, phone, email)")
       .eq("salon_id", salon.id)
       .eq("role", "cliente");
 
@@ -34,7 +34,7 @@ const ClientesPage = () => {
 
     const mapped: ClientProfile[] = (data ?? []).map((row: any) => ({
       user_id: row.user_id,
-      name: row.profiles?.name ?? null,
+      name: row.profiles?.full_name ?? null,
       phone: row.profiles?.phone ?? null,
       email: row.profiles?.email ?? null,
     }));

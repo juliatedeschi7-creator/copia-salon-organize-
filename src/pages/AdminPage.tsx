@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, CheckCircle, XCircle, Pencil } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Pencil, Trash2, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 // Valid role values defined in the app
@@ -43,6 +43,7 @@ interface ProfileRow {
   approved_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  deleted_at: string | null;
 }
 
 interface SalonRow {
@@ -96,7 +97,7 @@ const AdminPage = () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role, status, approved_at, created_at, updated_at")
+      .select("id, full_name, email, role, status, approved_at, created_at, updated_at, deleted_at")
       .order("full_name");
     if (error) {
       toast({ title: "Erro ao carregar usuários", description: error.message, variant: "destructive" });
@@ -220,6 +221,34 @@ const AdminPage = () => {
     fetchProfiles();
   };
 
+  // Soft-delete: set deleted_at = now() to remove from pending/approved lists
+  const handleSoftDelete = async (profile: ProfileRow) => {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", profile.id);
+    if (error) {
+      toast({ title: "Erro ao excluir usuário", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Usuário excluído (arquivado)." });
+      fetchProfiles();
+    }
+  };
+
+  // Restore: clear deleted_at
+  const handleRestore = async (profile: ProfileRow) => {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ deleted_at: null })
+      .eq("id", profile.id);
+    if (error) {
+      toast({ title: "Erro ao restaurar usuário", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Usuário restaurado." });
+      fetchProfiles();
+    }
+  };
+
   // Revoke approval: set status = 'pending' and clear approved_at
   const handleRevokeApproval = async (profile: ProfileRow) => {
     const { error } = await supabase
@@ -254,9 +283,11 @@ const AdminPage = () => {
 
   // A profile is considered approved when status === 'approved'
   const isApproved = (p: ProfileRow) => p.status === "approved";
+  const isDeleted = (p: ProfileRow) => !!p.deleted_at;
 
-  const pendentes = profiles.filter((p) => !isApproved(p));
-  const aprovados = profiles.filter((p) => isApproved(p));
+  const pendentes = profiles.filter((p) => !isApproved(p) && !isDeleted(p));
+  const aprovados = profiles.filter((p) => isApproved(p) && !isDeleted(p));
+  const excluidos = profiles.filter((p) => isDeleted(p));
 
   const statusBadgeVariant = (p: ProfileRow): "default" | "secondary" | "outline" =>
     isApproved(p) ? "default" : "secondary";
@@ -264,7 +295,7 @@ const AdminPage = () => {
   const statusLabel = (p: ProfileRow) =>
     STATUS_LABELS[p.status ?? ""] ?? p.status ?? "Pendente";
 
-  const renderRows = (rows: ProfileRow[]) => {
+  const renderRows = (rows: ProfileRow[], showRestore = false) => {
     if (loading) {
       return (
         <tr>
@@ -293,21 +324,34 @@ const AdminPage = () => {
         </td>
         <td className="px-4 py-3">
           <div className="flex flex-wrap gap-1">
-            {!isApproved(p) ? (
-              <Button size="sm" variant="default" onClick={() => openApproveModal(p)} className="gap-1">
-                <CheckCircle className="h-3 w-3" />
-                Aprovar
+            {showRestore ? (
+              <Button size="sm" variant="outline" onClick={() => handleRestore(p)} className="gap-1">
+                <RotateCcw className="h-3 w-3" />
+                Restaurar
               </Button>
             ) : (
-              <Button size="sm" variant="outline" onClick={() => handleRevokeApproval(p)} className="gap-1 text-destructive hover:text-destructive">
-                <XCircle className="h-3 w-3" />
-                Revogar
-              </Button>
+              <>
+                {!isApproved(p) ? (
+                  <Button size="sm" variant="default" onClick={() => openApproveModal(p)} className="gap-1">
+                    <CheckCircle className="h-3 w-3" />
+                    Aprovar
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => handleRevokeApproval(p)} className="gap-1 text-destructive hover:text-destructive">
+                    <XCircle className="h-3 w-3" />
+                    Revogar
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => openEditModal(p)} className="gap-1">
+                  <Pencil className="h-3 w-3" />
+                  Editar
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => handleSoftDelete(p)} className="gap-1 text-destructive hover:text-destructive">
+                  <Trash2 className="h-3 w-3" />
+                  Excluir
+                </Button>
+              </>
             )}
-            <Button size="sm" variant="ghost" onClick={() => openEditModal(p)} className="gap-1">
-              <Pencil className="h-3 w-3" />
-              Editar
-            </Button>
           </div>
         </td>
       </tr>
@@ -344,6 +388,14 @@ const AdminPage = () => {
             )}
           </TabsTrigger>
           <TabsTrigger value="aprovados">Aprovados</TabsTrigger>
+          <TabsTrigger value="excluidos">
+            Excluídos
+            {excluidos.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-destructive-foreground">
+                {excluidos.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="pendentes">
@@ -360,6 +412,15 @@ const AdminPage = () => {
             <table className="w-full text-sm">
               {tableHeaders}
               <tbody>{renderRows(aprovados)}</tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="excluidos">
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              {tableHeaders}
+              <tbody>{renderRows(excluidos, true)}</tbody>
             </table>
           </div>
         </TabsContent>
