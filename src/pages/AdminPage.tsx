@@ -1,5 +1,5 @@
 // AdminPage — aligned to the actual public.profiles schema:
-// id, full_name, email, role, status, approved_at, created_at, updated_at
+// id, user_id, full_name, email, role, status, is_approved, approved_at, created_at, updated_at
 import React, { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -36,10 +36,12 @@ type ApprovalRole = "dono" | "funcionario";
 // Matches the actual profiles table columns in the database
 interface ProfileRow {
   id: string;
+  user_id: string;
   full_name: string | null;
   email: string | null;
   role: ProfileRole | null;
   status: ProfileStatus | null;
+  is_approved: boolean | null;
   approved_at: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -96,7 +98,7 @@ const AdminPage = () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role, status, approved_at, created_at, updated_at")
+      .select("id, user_id, full_name, email, role, status, is_approved, approved_at, created_at, updated_at")
       .order("full_name");
     if (error) {
       toast({ title: "Erro ao carregar usuários", description: error.message, variant: "destructive" });
@@ -167,6 +169,7 @@ const AdminPage = () => {
       .from("profiles")
       .update({
         status: "approved",
+        is_approved: true,
         approved_at: new Date().toISOString(),
         role: approvalRole,
       })
@@ -197,7 +200,7 @@ const AdminPage = () => {
     const { error: memberError } = await supabase
       .from("salon_members")
       .upsert(
-        { salon_id: approvalSalonId, user_id: selectedProfile.id, role: approvalRole },
+        { salon_id: approvalSalonId, user_id: selectedProfile.user_id, role: approvalRole },
         { onConflict: "salon_id,user_id" }
       );
 
@@ -224,7 +227,7 @@ const AdminPage = () => {
   const handleRevokeApproval = async (profile: ProfileRow) => {
     const { error } = await supabase
       .from("profiles")
-      .update({ status: "pending", approved_at: null })
+      .update({ status: "pending", is_approved: false, approved_at: null })
       .eq("id", profile.id);
     if (error) {
       toast({ title: "Erro ao revogar aprovação", description: error.message, variant: "destructive" });
