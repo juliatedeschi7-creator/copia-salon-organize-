@@ -60,6 +60,32 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Database Migrations
+
+This project uses [Supabase CLI](https://supabase.com/docs/guides/cli) to manage database migrations.
+Migration files live in `supabase/migrations/`.
+
+### Apply migrations locally
+
+```sh
+# Apply all pending migrations (uses npx — no global install needed)
+npx supabase login
+npx supabase link --project-ref <YOUR_SUPABASE_PROJECT_REF>
+npx supabase db push
+```
+
+### Apply migrations to production
+
+In the [Supabase Dashboard](https://supabase.com/dashboard) → **SQL Editor**, run each new
+`.sql` file in `supabase/migrations/` in chronological order, or use the CLI:
+
+```sh
+npx supabase db push --linked
+```
+
+> **Note:** All migrations are written idempotently (`IF NOT EXISTS`) so they are safe to run
+> more than once.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.

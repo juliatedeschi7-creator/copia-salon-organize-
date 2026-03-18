@@ -539,6 +539,7 @@ export type Database = {
           approved_at: string | null
           avatar_url: string | null
           created_at: string
+          deleted_at: string | null
           email: string
           id: string
           is_approved: boolean
@@ -551,6 +552,7 @@ export type Database = {
           approved_at?: string | null
           avatar_url?: string | null
           created_at?: string
+          deleted_at?: string | null
           email?: string
           id?: string
           is_approved?: boolean
@@ -563,6 +565,7 @@ export type Database = {
           approved_at?: string | null
           avatar_url?: string | null
           created_at?: string
+          deleted_at?: string | null
           email?: string
           id?: string
           is_approved?: boolean
