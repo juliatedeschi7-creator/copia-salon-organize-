@@ -56,7 +56,7 @@ const SettingsPage = () => {
     if (!salon) return;
     supabase
       .from("salon_members")
-      .select("user_id, role, profiles(name, email)")
+      .select("user_id, role, profiles(full_name, email)")
       .eq("salon_id", salon.id)
       .eq("role", "cliente")
       .then(({ data }) => setSalonMembers(data || []));
@@ -64,7 +64,7 @@ const SettingsPage = () => {
     // Load team members (dono + funcionario)
     supabase
       .from("salon_members")
-      .select("user_id, role, profiles(name, email)")
+      .select("user_id, role, profiles(full_name, email)")
       .eq("salon_id", salon.id)
       .in("role", ["dono", "funcionario"])
       .then(({ data }) => setTeamMembers(data || []));
@@ -434,7 +434,7 @@ const SettingsPage = () => {
                   {teamMembers.map((m: any) => (
                     <div key={m.user_id} className="flex items-center justify-between rounded-lg border border-border p-3">
                       <div>
-                        <p className="text-sm font-medium">{m.profiles?.name || m.profiles?.email || m.user_id}</p>
+                        <p className="text-sm font-medium">{m.profiles?.full_name || m.profiles?.email || m.user_id}</p>
                         <p className="text-xs text-muted-foreground capitalize">{m.role === "dono" ? "Dono" : "Funcionário"}</p>
                       </div>
                     </div>
