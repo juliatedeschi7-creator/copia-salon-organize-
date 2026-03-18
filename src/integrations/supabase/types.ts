@@ -706,6 +706,57 @@ export type Database = {
           },
         ]
       }
+      team_invites: {
+        Row: {
+          id: string
+          token: string
+          salon_id: string
+          role: string
+          created_by: string
+          used_at: string | null
+          used_by: string | null
+          expires_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          token?: string
+          salon_id: string
+          role?: string
+          created_by: string
+          used_at?: string | null
+          used_by?: string | null
+          expires_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          token?: string
+          salon_id?: string
+          role?: string
+          created_by?: string
+          used_at?: string | null
+          used_by?: string | null
+          expires_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_invites_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: false
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_invites_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -739,6 +790,19 @@ export type Database = {
           logo_url: string
           name: string
           primary_color: string
+        }[]
+      }
+      get_team_invite_by_token: {
+        Args: { _token: string }
+        Returns: {
+          id: string
+          salon_id: string
+          salon_name: string
+          salon_logo_url: string | null
+          salon_primary_color: string | null
+          role: string
+          expires_at: string | null
+          used_at: string | null
         }[]
       }
       has_role: {
