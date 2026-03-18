@@ -50,6 +50,26 @@ npm run dev
 - Click on "New codespace" to launch a new Codespace environment.
 - Edit files directly within the Codespace and commit and push your changes once you're done.
 
+## Database migrations (Supabase)
+
+Migration files live in `supabase/migrations/`. After cloning the repo (or after merging a PR that adds new migrations), apply them to your Supabase project so the database schema stays in sync with the code:
+
+```sh
+# Install Supabase CLI if you haven't already
+npm install -g supabase
+
+# Log in and link to your project
+supabase login
+supabase link --project-ref <YOUR_PROJECT_REF>
+
+# Push all pending migrations
+supabase db push
+```
+
+Alternatively, open each `.sql` file in the Supabase **SQL Editor** and run it manually.
+
+> **Important:** If you see the error `column profiles.deleted_at does not exist`, run migration `supabase/migrations/20260318000001_add_deleted_at_to_profiles.sql` (or `supabase db push`) to add the column.
+
 ## What technologies are used for this project?
 
 This project is built with:

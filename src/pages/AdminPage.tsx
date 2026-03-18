@@ -1,5 +1,6 @@
-// AdminPage — aligned to the actual public.profiles schema:
-// id, full_name, email, role, status, approved_at, created_at, updated_at
+// AdminPage — queries public.profiles.
+// Core columns: id, full_name, email, role, status, approved_at, created_at, updated_at
+// Optional column added by migration 20260318000001: deleted_at (soft-delete)
 import React, { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -92,12 +93,15 @@ const AdminPage = () => {
   const [approvalSalonId, setApprovalSalonId] = useState("");
   const [approving, setApproving] = useState(false);
 
-  // Fetch all profiles using only existing schema columns
+  // Fetch all profiles — select * so the query works regardless of which
+  // optional columns (deleted_at, access_state, …) exist in the current
+  // Supabase deployment.  The ProfileRow interface marks deleted_at as
+  // nullable so missing values degrade gracefully to null.
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role, status, approved_at, created_at, updated_at, deleted_at")
+      .select("*")
       .order("full_name");
     if (error) {
       toast({ title: "Erro ao carregar usuários", description: error.message, variant: "destructive" });
