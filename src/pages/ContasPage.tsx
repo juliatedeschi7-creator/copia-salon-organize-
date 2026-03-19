@@ -85,10 +85,14 @@ const ContasPage = () => {
   const { user, role } = useAuth();
   const isOwner = role === "dono" || role === "admin";
 
+  const isSchemaError = (err: { message?: string; code?: string } | null) =>
+    !!err && (err.code === "42703" || (err.message ?? "").toLowerCase().includes("does not exist"));
+
   const [charges, setCharges] = useState<Charge[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [schemaError, setSchemaError] = useState(false);
 
   // New charge dialog
   const [showChargeDialog, setShowChargeDialog] = useState(false);
@@ -164,8 +168,15 @@ const ContasPage = () => {
         .eq("client_user_id", user.id)
         .order("created_at", { ascending: false });
 
-      if (chargesErr) toast.error("Erro ao carregar cobranças: " + chargesErr.message);
-      else setCharges((chargesData ?? []) as Charge[]);
+      if (chargesErr) {
+        if (isSchemaError(chargesErr)) {
+          setSchemaError(true);
+        } else {
+          toast.error("Erro ao carregar cobranças: " + chargesErr.message);
+        }
+      } else {
+        setCharges((chargesData ?? []) as Charge[]);
+      }
 
       const { data: paymentsData, error: paymentsErr } = await supabase
         .from("payments")
@@ -173,8 +184,15 @@ const ContasPage = () => {
         .eq("client_user_id", user.id)
         .order("created_at", { ascending: false });
 
-      if (paymentsErr) toast.error("Erro ao carregar pagamentos: " + paymentsErr.message);
-      else setPayments((paymentsData ?? []) as Payment[]);
+      if (paymentsErr) {
+        if (isSchemaError(paymentsErr)) {
+          setSchemaError(true);
+        } else {
+          toast.error("Erro ao carregar pagamentos: " + paymentsErr.message);
+        }
+      } else {
+        setPayments((paymentsData ?? []) as Payment[]);
+      }
     }
 
     setLoading(false);
@@ -323,6 +341,18 @@ const ContasPage = () => {
         )}
       </div>
 
+      {!isOwner && schemaError && (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <CreditCard className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
+            <p className="text-sm font-medium text-foreground">Dados ainda não disponíveis</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              O sistema está sendo atualizado. Suas cobranças e pagamentos estarão disponíveis em breve.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary cards */}
       {isOwner && (
         <div className="grid gap-4 sm:grid-cols-3">
@@ -374,6 +404,7 @@ const ContasPage = () => {
       )}
 
       {/* Pending charges */}
+      {(!schemaError || isOwner) && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -435,8 +466,10 @@ const ContasPage = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Payment history */}
+      {(!schemaError || isOwner) && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -476,6 +509,7 @@ const ContasPage = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Other charges (paid / cancelled) – owner only */}
       {isOwner && (paidCharges.length > 0 || cancelledCharges.length > 0) && (

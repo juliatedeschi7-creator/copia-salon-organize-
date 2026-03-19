@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSalon } from "@/contexts/SalonContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, PackageOpen, Loader2, UserPlus, X } from "lucide-react";
+import { Plus, Pencil, Trash2, PackageOpen, Loader2, UserPlus, X, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
 interface Service {
@@ -39,12 +40,45 @@ interface SalonClient {
   profiles: { full_name: string; email: string } | null;
 }
 
+interface ClientPackage {
+  id: string;
+  client_user_id: string;
+  package_id: string;
+  status: string;
+  purchased_at: string;
+  expires_at: string;
+  sessions_used: number;
+  packages: { name: string } | null;
+}
+
+const cpStatusLabel: Record<string, string> = {
+  contratado: "Contratado",
+  ativo: "Ativo",
+  finalizado: "Finalizado",
+  cancelado: "Cancelado",
+};
+
+const cpStatusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  contratado: "outline",
+  ativo: "default",
+  finalizado: "secondary",
+  cancelado: "destructive",
+};
+
+const sessionStatusLabel: Record<string, string> = {
+  realizado: "Realizado",
+  nao_avisou: "Não avisou",
+  avisou_menos_2h: "Avisou com menos de 2h",
+};
+
 const PacotesPage = () => {
   const { salon } = useSalon();
+  const { user } = useAuth();
 
   const [packages, setPackages] = useState<Package[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [clients, setClients] = useState<SalonClient[]>([]);
+  const [clientPackages, setClientPackages] = useState<ClientPackage[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Package dialog
@@ -63,11 +97,19 @@ const PacotesPage = () => {
   const [assignPkg, setAssignPkg] = useState<Package | null>(null);
   const [assignClientId, setAssignClientId] = useState("");
   const [assignPurchasedAt, setAssignPurchasedAt] = useState(new Date().toISOString().slice(0, 10));
+  const [assignStatus, setAssignStatus] = useState("contratado");
   const [assigning, setAssigning] = useState(false);
+
+  // Session registration dialog
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [sessionCp, setSessionCp] = useState<ClientPackage | null>(null);
+  const [sessionStatus, setSessionStatus] = useState("realizado");
+  const [sessionNotes, setSessionNotes] = useState("");
+  const [savingSession, setSavingSession] = useState(false);
 
   const fetchData = async () => {
     if (!salon) return;
-    const [pkgRes, svcRes, clientRes] = await Promise.all([
+    const [pkgRes, svcRes, clientRes, cpRes] = await Promise.all([
       supabase
         .from("packages")
         .select("id, name, description, price, validity_days, is_active, package_items(service_id, quantity, services(name))")
@@ -79,10 +121,16 @@ const PacotesPage = () => {
         .select("user_id, profiles(full_name, email)")
         .eq("salon_id", salon.id)
         .eq("role", "cliente"),
+      supabase
+        .from("client_packages")
+        .select("id, client_user_id, package_id, status, purchased_at, expires_at, sessions_used, packages(name)")
+        .eq("salon_id", salon.id)
+        .order("purchased_at", { ascending: false }),
     ]);
     setPackages((pkgRes.data as Package[]) ?? []);
     setServices((svcRes.data as Service[]) ?? []);
     setClients((clientRes.data as SalonClient[]) ?? []);
+    setClientPackages((cpRes.data as ClientPackage[]) ?? []);
     setLoading(false);
   };
 
@@ -194,6 +242,7 @@ const PacotesPage = () => {
     setAssignPkg(pkg);
     setAssignClientId("");
     setAssignPurchasedAt(new Date().toISOString().slice(0, 10));
+    setAssignStatus("contratado");
     setAssignDialogOpen(true);
   };
 
@@ -213,6 +262,7 @@ const PacotesPage = () => {
           client_user_id: assignClientId,
           purchased_at: purchasedDate.toISOString(),
           expires_at: expiresDate.toISOString(),
+          status: assignStatus,
         })
         .select("id")
         .single();
@@ -239,6 +289,56 @@ const PacotesPage = () => {
       setAssigning(false);
     }
   };
+
+  // Session helpers
+  const openSession = (cp: ClientPackage) => {
+    setSessionCp(cp);
+    setSessionStatus("realizado");
+    setSessionNotes("");
+    setSessionDialogOpen(true);
+  };
+
+  const handleRegisterSession = async () => {
+    if (!salon || !sessionCp || !user) return;
+    setSavingSession(true);
+    try {
+      const { error: sessErr } = await supabase.from("package_sessions").insert({
+        salon_id: salon.id,
+        client_user_id: sessionCp.client_user_id,
+        client_package_id: sessionCp.id,
+        status: sessionStatus,
+        notes: sessionNotes || null,
+        created_by: user.id,
+      });
+      if (sessErr) throw sessErr;
+
+      // Increment sessions_used and activate if still contracted
+      const newUsed = sessionCp.sessions_used + 1;
+      const newStatus = sessionCp.status === "contratado" ? "ativo" : sessionCp.status;
+      const { error: updateErr } = await supabase
+        .from("client_packages")
+        .update({ sessions_used: newUsed, status: newStatus })
+        .eq("id", sessionCp.id);
+      if (updateErr) throw updateErr;
+
+      toast.success("Sessão registrada!");
+      setSessionDialogOpen(false);
+      fetchData();
+    } catch (err: unknown) {
+      toast.error("Erro ao registrar sessão");
+      console.error(err);
+    } finally {
+      setSavingSession(false);
+    }
+  };
+
+  const clientName = useMemo(() => {
+    const map = new Map(clients.map((c) => [c.user_id, c]));
+    return (userId: string) => {
+      const c = map.get(userId);
+      return c?.profiles?.full_name ?? c?.profiles?.email ?? userId.slice(0, 8) + "…";
+    };
+  }, [clients]);
 
   if (loading) {
     return (
@@ -431,6 +531,18 @@ const PacotesPage = () => {
               <Label htmlFor="assign-date">Data de compra *</Label>
               <Input id="assign-date" type="date" value={assignPurchasedAt} onChange={(e) => setAssignPurchasedAt(e.target.value)} />
             </div>
+            <div className="space-y-1">
+              <Label>Status inicial</Label>
+              <Select value={assignStatus} onValueChange={setAssignStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="contratado">Contratado (pago, sem sessões iniciadas)</SelectItem>
+                  <SelectItem value="ativo">Ativo (em andamento)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {assignPkg && (
               <p className="text-xs text-muted-foreground">
                 Expira em: {assignPkg.validity_days} dias a partir da data de compra
@@ -441,6 +553,90 @@ const PacotesPage = () => {
               <Button onClick={handleAssign} disabled={assigning || !assignClientId}>
                 {assigning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Atribuir
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Client packages (assigned) section */}
+      {clientPackages.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">Pacotes Atribuídos</h2>
+          </div>
+          <div className="space-y-2">
+            {clientPackages.map((cp) => (
+              <div
+                key={cp.id}
+                className="flex items-center justify-between rounded-lg border border-border p-3"
+              >
+                <div className="space-y-0.5 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium">{cp.packages?.name ?? "Pacote"}</p>
+                    <Badge variant={cpStatusVariant[cp.status] ?? "secondary"}>
+                      {cpStatusLabel[cp.status] ?? cp.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {clientName(cp.client_user_id)} · {cp.sessions_used} sessão(ões) registrada(s)
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Expira: {new Date(cp.expires_at).toLocaleDateString("pt-BR")}
+                  </p>
+                </div>
+                {cp.status !== "finalizado" && cp.status !== "cancelado" && (
+                  <Button size="sm" variant="outline" onClick={() => openSession(cp)} className="ml-3 shrink-0">
+                    <Plus className="mr-1 h-3 w-3" /> Sessão
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Session registration dialog */}
+      <Dialog open={sessionDialogOpen} onOpenChange={setSessionDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar Sessão</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            {sessionCp && (
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <p className="font-medium">{sessionCp.packages?.name ?? "Pacote"}</p>
+                <p className="text-xs text-muted-foreground">{clientName(sessionCp.client_user_id)}</p>
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label>Status da sessão *</Label>
+              <Select value={sessionStatus} onValueChange={setSessionStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(sessionStatusLabel).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Observação</Label>
+              <Textarea
+                placeholder="Ex: Cliente chegou 10 min atrasada"
+                value={sessionNotes}
+                onChange={(e) => setSessionNotes(e.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setSessionDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={handleRegisterSession} disabled={savingSession}>
+                {savingSession && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Registrar
               </Button>
             </div>
           </div>
