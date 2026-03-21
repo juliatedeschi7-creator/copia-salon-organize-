@@ -1,0 +1,1 @@
+class AddSessionStatusAndSessionDateToClientPackageItems < ActiveRecord::Migration[6.0]\n  def change\n    add_column :client_package_items, :session_status, :string\n    add_column :client_package_items, :session_date, :datetime\n  end\nend\n
