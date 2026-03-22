@@ -30,11 +30,11 @@ export const navItems: NavItem[] = [
     icon: LayoutDashboard,
     roles: ["admin", "dono"],
   },
-  {
+{
   label: "Minha Agenda",
   path: "/minha-agenda",
   icon: Calendar,
-  roles: ["funcionario"],  // ✅ APENAS FUNCIONÁRIOS
+  roles: ["cliente", "funcionario"],  // ✅ AMBOS ACESSAM
 },
   {
     label: "Serviços",
