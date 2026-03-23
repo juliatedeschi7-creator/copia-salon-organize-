@@ -26,6 +26,9 @@ import ClientAreaPage from "@/pages/ClientAreaPage";
 import ClientInvitePage from "@/pages/ClientInvitePage";
 import TeamInvitePage from "@/pages/TeamInvitePage";
 import ContasPage from "@/pages/ContasPage";
+import MySchedulePage from "@/pages/MySchedulePage";
+import ClientSchedulePage from "@/pages/ClientSchedulePage";
+import ServicesShowcasePage from "@/pages/ServicesShowcasePage";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -133,7 +136,11 @@ const AppRoutes = () => {
         <Route path="/configuracoes" element={<SettingsPage />} />
         <Route path="/notificacoes" element={<NotificationsPage />} />
         <Route path="/admin" element={<AdminPage />} />
-        <Route path="/minha-agenda" element={<EmployeePage />} />
+        <Route 
+          path="/minha-agenda" 
+          element={role === "cliente" ? <ClientSchedulePage /> : <MySchedulePage />} 
+        />
+        <Route path="/servicos-catalogo" element={<ServicesShowcasePage />} />
         <Route path="/cliente-area" element={<ClientAreaPage />} />
       </Route>
 
