@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppRole } from "@/types";
-import type { User, Session } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
 
 interface Profile {
   id: string;
-  full_name: string | null;
+  user_id?: string;
+  name: string | null;
   email: string | null;
   role: AppRole | null;
   status: "pending" | "approved" | null;
@@ -41,7 +42,7 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-export const AuthProvider = ({ children }: { ReactNode }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
@@ -49,33 +50,48 @@ export const AuthProvider = ({ children }: { ReactNode }) => {
 
   // Fetch user profile from public.profiles
   const fetchProfile = async (userId: string) => {
+    console.log("🔵 Fetching profile for userId:", userId);
+    
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role, status, approved_at, is_approved, deleted_at")
+      .select("id, user_id, name, email, role, status, approved_at, is_approved, deleted_at")
       .eq("id", userId)
       .single();
 
     if (error) {
-      console.error("Error fetching profile:", error);
+      console.error("❌ Error fetching profile:", error);
       return null;
     }
+
+    console.log("✅ Profile fetched:", {
+      id: data?.id,
+      email: data?.email,
+      status: data?.status,
+      approved_at: data?.approved_at,
+      is_approved: data?.is_approved,
+    });
 
     return data as Profile;
   };
 
   // Fetch user roles from public.user_roles
   const fetchRoles = async (userId: string) => {
+    console.log("🔵 Fetching roles for userId:", userId);
+    
     const { data, error } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", userId);
 
     if (error) {
-      console.error("Error fetching roles:", error);
+      console.error("❌ Error fetching roles:", error);
       return [];
     }
 
-    return (data?.map((r) => r.role) as AppRole[]) || [];
+    const roles = (data?.map((r) => r.role) as AppRole[]) || [];
+    console.log("✅ Roles fetched:", roles);
+    
+    return roles;
   };
 
   // Set up auth state listener
@@ -85,6 +101,7 @@ export const AuthProvider = ({ children }: { ReactNode }) => {
       const { data: { session } } = await supabase.auth.getSession();
 
       if (session?.user) {
+        console.log("🔐 User session found:", session.user.email);
         setUser(session.user);
         const prof = await fetchProfile(session.user.id);
         setProfile(prof);
@@ -99,13 +116,17 @@ export const AuthProvider = ({ children }: { ReactNode }) => {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("🔄 Auth state changed:", event);
+      
       if (session?.user) {
+        console.log("🔐 User authenticated:", session.user.email);
         setUser(session.user);
         const prof = await fetchProfile(session.user.id);
         setProfile(prof);
         const userRoles = await fetchRoles(session.user.id);
         setRoles(userRoles);
       } else {
+        console.log("🔴 User logged out");
         setUser(null);
         setProfile(null);
         setRoles([]);
@@ -120,6 +141,8 @@ export const AuthProvider = ({ children }: { ReactNode }) => {
     profile?.status === "approved" || 
     !!profile?.approved_at || 
     profile?.is_approved === true;
+
+  console.log("🟡 Approval status:", { isApproved, status: profile?.status, approved_at: profile?.approved_at, is_approved: profile?.is_approved });
 
   // Primary role: admin > dono > funcionario > cliente
   const role: AppRole = 
