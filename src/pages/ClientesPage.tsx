@@ -1,279 +1,172 @@
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { useSalon } from "@/contexts/SalonContext";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Loader2, Scissors } from "lucide-react";
+import { Users, Phone, Link as LinkIcon, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
-interface SalonInfo {
-  id: string;
-  name: string;
-  logo_url: string | null;
-  primary_color: string | null;
+interface ClientProfile {
+  user_id: string;
+  name: string | null;
+  phone?: string | null;
+  email?: string | null;
 }
 
-const ClientInvitePage = () => {
-  const { linkId } = useParams<{ linkId: string }>();
-  const navigate = useNavigate();
-  const [salon, setSalon] = useState<SalonInfo | null>(null);
+const ClientesPage = () => {
+  const { salon } = useSalon();
+  const [clients, setClients] = useState<ClientProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
 
-  const [isLogin, setIsLogin] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const fetchClients = async () => {
+    if (!salon) {
+      setLoading(false);
+      return;
+    }
+    
+    setLoading(true);
+    
+    const { data, error } = await supabase
+      .from("salon_members")
+      .select("user_id, profiles(full_name, phone, email)")
+      .eq("salon_id", salon.id)
+      .eq("role", "cliente")
+      .order("user_id", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar clientes:", error);
+      toast.error("Erro ao carregar clientes: " + error.message);
+      setLoading(false);
+      return;
+    }
+
+    console.log("Dados recebidos do servidor:", data);
+
+    const mapped: ClientProfile[] = (data ?? []).map((row: any) => {
+      console.log("Perfil do cliente:", row.profiles);
+      return {
+        user_id: row.user_id,
+        name: row.profiles?.full_name || row.profiles?.name || "Sem nome",
+        phone: row.profiles?.phone ?? null,
+        email: row.profiles?.email ?? null,
+      };
+    });
+
+    setClients(mapped);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetchSalon = async () => {
-      if (!linkId) { setNotFound(true); setLoading(false); return; }
-      const { data, error } = await supabase.rpc("get_salon_by_client_link", { _link: linkId });
-      if (error || !data || (data as any[]).length === 0) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
-      const row = Array.isArray(data) ? data[0] : data;
-      setSalon(row as SalonInfo);
+    fetchClients();
+  }, [salon]);
 
-      // If user is already authenticated, link them to this salon directly
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const salonId = (row as SalonInfo).id;
-        const userId = session.user.id;
-        // Upsert salon membership as cliente
-        const { error: memberError } = await supabase
-          .from("salon_members")
-          .upsert({ salon_id: salonId, user_id: userId, role: "cliente" }, { onConflict: "salon_id,user_id" });
-        if (memberError) {
-          console.error("Erro ao vincular ao salão:", memberError.message);
-          toast.error("Não foi possível vincular sua conta ao salão. Tente novamente.");
-        } else {
-          toast.success("Você foi vinculado ao salão com sucesso!");
-          navigate("/cliente-area");
-          return;
-        }
-      }
+  const handleCopyInviteLink = () => {
+    if (!salon) {
+      toast.error("Salão não encontrado.");
+      return;
+    }
 
-      setLoading(false);
+    if (!salon.client_link) {
+      toast.error("Link de convite não encontrado. Configure nas Configurações.");
+      return;
+    }
+
+    const url = `${window.location.origin}/convite/${salon.client_link}`;
+
+    const fallbackCopy = () => {
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.setAttribute("readonly", "");
+      textarea.style.cssText = "position:absolute;left:-9999px;top:-9999px;";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+        toast.success("Link de convite copiado! Compartilhe com sua cliente.");
+      } catch {
+        toast.error(`Não foi possível copiar automaticamente. Link: ${url}`);
+      } finally {
+        document.body.removeChild(textarea);
+      }
     };
-    fetchSalon();
-  }, [linkId, navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-
-    if (isLogin) {
-      // LOGIN
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        toast.error(error.message);
-        setSubmitting(false);
-      } else {
-        // Link cliente ao salão após login
-        if (salon) {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            const { error: memberError } = await supabase
-              .from("salon_members")
-              .upsert(
-                { salon_id: salon.id, user_id: user.id, role: "cliente" },
-                { onConflict: "salon_id,user_id" }
-              );
-            if (memberError) {
-              console.error("Erro ao vincular ao salão:", memberError.message);
-            }
-          }
-        }
-        navigate("/cliente-area");
-      }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(() => {
+          toast.success("Link de convite copiado! Compartilhe com sua cliente.");
+        })
+        .catch(fallbackCopy);
     } else {
-      // SIGN UP - Criar conta nova
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { 
-            full_name: name,
-            display_name: name,
-            salon_client_link: linkId 
-          },
-          emailRedirectTo: window.location.origin + "/cliente-area",
-        },
-      });
-
-      if (error) {
-        toast.error(error.message);
-        setSubmitting(false);
-      } else if (data?.user) {
-        try {
-          // ✅ ATUALIZAR PROFILE COM O FULL_NAME
-          const { error: updateProfileError } = await supabase
-            .from("profiles")
-            .update({
-              full_name: name,
-            })
-            .eq("id", data.user.id);
-
-          if (updateProfileError) {
-            console.error("Erro ao atualizar perfil:", updateProfileError.message);
-            toast.warning("Conta criada, mas houve um erro ao salvar o nome. Você pode atualizar depois.");
-          }
-
-          // ✅ VINCULAR CLIENTE AO SALÃO IMEDIATAMENTE
-          if (salon) {
-            const { error: memberError } = await supabase
-              .from("salon_members")
-              .insert({
-                salon_id: salon.id,
-                user_id: data.user.id,
-                role: "cliente"
-              });
-
-            if (memberError) {
-              console.error("Erro ao vincular ao salão:", memberError.message);
-              toast.error("Conta criada, mas houve um erro ao vincular ao salão. Tente fazer login novamente.");
-              setSubmitting(false);
-              return;
-            }
-          }
-
-          toast.success("Conta criada com sucesso! Bem-vindo ao salão!");
-
-          // ✅ AUTO-LOGIN APÓS CRIAR CONTA
-          const { error: signInError } = await supabase.auth.signInWithPassword({ 
-            email, 
-            password 
-          });
-
-          if (signInError) {
-            toast.error("Conta criada, mas houve um erro no login automático. Tente fazer login manualmente.");
-            setSubmitting(false);
-          } else {
-            navigate("/cliente-area");
-          }
-        } catch (err) {
-          console.error("Erro inesperado:", err);
-          toast.error("Houve um erro ao processar o cadastro. Tente novamente.");
-          setSubmitting(false);
-        }
-      } else {
-        setSubmitting(false);
-      }
+      fallbackCopy();
     }
   };
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  if (notFound) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-md text-center">
-          <CardContent className="py-12">
-            <Scissors className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Link inválido</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Este link de convite não existe ou expirou.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          {salon?.logo_url ? (
-            <img src={salon.logo_url} alt={salon.name} className="mx-auto mb-3 h-16 w-16 rounded-xl object-cover" />
-          ) : (
-            <div
-              className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl text-primary-foreground"
-              style={{ backgroundColor: salon?.primary_color || "hsl(var(--primary))" }}
-            >
-              <Scissors className="h-7 w-7" />
-            </div>
-          )}
-          <CardTitle className="text-xl">{salon?.name}</CardTitle>
-          <CardDescription className="mt-1">
-            {isLogin
-              ? "Entre na sua conta de cliente"
-              : "Crie sua conta e acesse sua área exclusiva"}
-          </CardDescription>
-          {!isLogin && (
-            <ul className="mt-3 space-y-1 text-left text-xs text-muted-foreground">
-              <li>📅 Agende atendimentos com facilidade</li>
-              <li>💆 Confira o catálogo de serviços do salão</li>
-              <li>📦 Acompanhe o uso e evolução dos seus pacotes</li>
-              <li>🔔 Receba notificações e comunicados do salão</li>
-            </ul>
-          )}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Clientes</h1>
+          <p className="text-sm text-muted-foreground">Gerencie as clientes do seu salão</p>
+        </div>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            onClick={fetchClients}
+            title="Atualizar lista"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button className="gap-2" onClick={handleCopyInviteLink}>
+            <LinkIcon className="h-4 w-4" /> Convidar cliente
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Users className="h-5 w-5 text-primary" />
+            Lista de Clientes ({clients.length})
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
-              <div className="space-y-2">
-                <Label>Nome completo</Label>
-                <Input 
-                  value={name} 
-                  onChange={(e) => setName(e.target.value)} 
-                  placeholder="Seu nome" 
-                  required 
-                />
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label>E-mail</Label>
-              <Input 
-                type="email" 
-                value={email} 
-                onChange={(e) => setEmail(e.target.value)} 
-                placeholder="seu@email.com" 
-                required 
-              />
+          {clients.length === 0 ? (
+            <div className="py-8 text-center space-y-2">
+              <p className="text-sm text-muted-foreground">Nenhuma cliente vinculada ainda.</p>
+              <p className="text-xs text-muted-foreground">
+                Clique em <strong>Convidar cliente</strong> para copiar o link de cadastro e compartilhar com suas clientes.
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label>Senha</Label>
-              <Input 
-                type="password" 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                placeholder="••••••••" 
-                required 
-                minLength={6} 
-              />
+          ) : (
+            <div className="space-y-3">
+              {clients.map((c) => (
+                <div key={c.user_id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {c.name || c.email || "Sem nome"}
+                    </p>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                      {c.email && <span>{c.email}</span>}
+                      {c.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isLogin ? "Entrar" : "Criar conta"}
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
-            <button 
-              type="button" 
-              onClick={() => setIsLogin(!isLogin)} 
-              className="font-medium text-primary hover:underline"
-            >
-              {isLogin ? "Criar conta" : "Fazer login"}
-            </button>
-          </p>
+          )}
         </CardContent>
       </Card>
     </div>
   );
 };
 
-export default ClientInvitePage;
+export default ClientesPage;
