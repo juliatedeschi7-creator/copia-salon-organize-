@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Save, Clock, Bell, Palette, Loader2, Plus, X, Send, Users, Link as LinkIcon, Trash2 } from "lucide-react";
+import { Camera, Save, Clock, Bell, Palette, Loader2, Plus, X, Send, Users, Link as LinkIcon, Trash2, Copy, Check } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -38,6 +38,7 @@ const SettingsPage = () => {
   const [sendingNotif, setSendingNotif] = useState(false);
   const [notifForm, setNotifForm] = useState({ title: "", message: "", target: "all" });
   const [salonMembers, setSalonMembers] = useState<any[]>([]);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Team invites state
   const [teamInvites, setTeamInvites] = useState<any[]>([]);
@@ -159,6 +160,25 @@ const SettingsPage = () => {
     }
   };
 
+  const handleCopyClientLink = () => {
+    if (!form.client_link) {
+      toast.error("Link de cliente não disponível");
+      return;
+    }
+    const url = `${window.location.origin}/convite/${form.client_link}`;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        setCopiedLink(true);
+        toast.success("Link de convite de cliente copiado!");
+        setTimeout(() => setCopiedLink(false), 2000);
+      }).catch(() => {
+        toast.info("Link: " + url);
+      });
+    } else {
+      toast.info("Link: " + url);
+    }
+  };
+
   const handleSave = async () => {
     await updateSalon({
       name: form.name,
@@ -274,6 +294,45 @@ const SettingsPage = () => {
                   rows={3}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* ✅ NOVO: Link de Convite de Clientes */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <LinkIcon className="h-5 w-5 text-primary" />
+                Link de Convite de Clientes
+              </CardTitle>
+              <CardDescription>Compartilhe este link para que novos clientes se cadastrem</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {form.client_link ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    readOnly
+                    value={`${window.location.origin}/convite/${form.client_link}`}
+                    className="text-xs"
+                  />
+                  <Button
+                    onClick={handleCopyClientLink}
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                  >
+                    {copiedLink ? (
+                      <Check className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Link de convite não gerado ainda. Salve as configurações.</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                As clientes que acessarem este link poderão se cadastrar e serão automaticamente vinculadas ao seu salão.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -534,7 +593,7 @@ const SettingsPage = () => {
                   <option value="all">Todas as clientes ({salonMembers.length})</option>
                   {salonMembers.map((m: any) => (
                     <option key={m.user_id} value={m.user_id}>
-                      {m.profiles?.name || m.profiles?.email || m.user_id}
+                      {m.profiles?.full_name || m.profiles?.email || m.user_id}
                     </option>
                   ))}
                 </select>
