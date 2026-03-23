@@ -72,25 +72,76 @@ const ClientInvitePage = () => {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         toast.error(error.message);
+        setSubmitting(false);
       } else {
+        // Link cliente ao salão após login
+        if (salon) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { error: memberError } = await supabase
+              .from("salon_members")
+              .upsert(
+                { salon_id: salon.id, user_id: user.id, role: "cliente" },
+                { onConflict: "salon_id,user_id" }
+              );
+            if (memberError) {
+              console.error("Erro ao vincular ao salão:", memberError.message);
+            }
+          }
+        }
         navigate("/cliente-area");
       }
     } else {
-      const { error } = await supabase.auth.signUp({
+      // SIGN UP - Criar conta nova
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { name, salon_client_link: linkId },
+          data: { 
+            name,
+            full_name: name,
+            salon_client_link: linkId 
+          },
           emailRedirectTo: window.location.origin + "/cliente-area",
         },
       });
+
       if (error) {
         toast.error(error.message);
-      } else {
+        setSubmitting(false);
+      } else if (data?.user) {
+        // ✅ NOVO: Vincular cliente ao salão IMEDIATAMENTE após sign up
+        if (salon) {
+          const { error: memberError } = await supabase
+            .from("salon_members")
+            .insert({
+              salon_id: salon.id,
+              user_id: data.user.id,
+              role: "cliente"
+            });
+
+          if (memberError) {
+            console.error("Erro ao vincular ao salão:", memberError.message);
+            toast.error("Conta criada, mas houve um erro ao vincular ao salão. Tente fazer login novamente.");
+          } else {
+            toast.success("Conta criada com sucesso! Bem-vindo ao salão!");
+            // Auto-login após criar conta
+            const { error: signInError } = await supabase.auth.signInWithPassword({ 
+              email, 
+              password 
+            });
+            if (!signInError) {
+              navigate("/cliente-area");
+              return;
+            }
+          }
+        }
         toast.success("Conta criada com sucesso! Você já pode fazer login.");
+        setSubmitting(false);
+      } else {
+        setSubmitting(false);
       }
     }
-    setSubmitting(false);
   };
 
   if (loading) {
