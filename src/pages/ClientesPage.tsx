@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSalon } from "@/contexts/SalonContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, Phone, Link as LinkIcon, Loader2 } from "lucide-react";
+import { Users, Phone, Link as LinkIcon, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 interface ClientProfile {
@@ -20,24 +20,33 @@ const ClientesPage = () => {
 
   const fetchClients = async () => {
     if (!salon) return;
+    setLoading(true);
+    
     const { data, error } = await supabase
       .from("salon_members")
       .select("user_id, profiles(full_name, phone, email)")
       .eq("salon_id", salon.id)
-      .eq("role", "cliente");
+      .eq("role", "cliente")
+      .order("user_id", { ascending: true });
 
     if (error) {
+      console.error("Erro ao carregar clientes:", error);
       toast.error("Erro ao carregar clientes: " + error.message);
       setLoading(false);
       return;
     }
 
-    const mapped: ClientProfile[] = (data ?? []).map((row: any) => ({
-      user_id: row.user_id,
-      name: row.profiles?.full_name ?? null,
-      phone: row.profiles?.phone ?? null,
-      email: row.profiles?.email ?? null,
-    }));
+    console.log("Dados recebidos do servidor:", data);
+
+    const mapped: ClientProfile[] = (data ?? []).map((row: any) => {
+      console.log("Perfil do cliente:", row.profiles);
+      return {
+        user_id: row.user_id,
+        name: row.profiles?.full_name || row.profiles?.name || "Sem nome",
+        phone: row.profiles?.phone ?? null,
+        email: row.profiles?.email ?? null,
+      };
+    });
 
     setClients(mapped);
     setLoading(false);
@@ -95,9 +104,19 @@ const ClientesPage = () => {
           <h1 className="text-2xl font-bold text-foreground">Clientes</h1>
           <p className="text-sm text-muted-foreground">Gerencie as clientes do seu salão</p>
         </div>
-        <Button className="gap-2" onClick={handleCopyInviteLink}>
-          <LinkIcon className="h-4 w-4" /> Convidar cliente
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            onClick={fetchClients}
+            title="Atualizar lista"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button className="gap-2" onClick={handleCopyInviteLink}>
+            <LinkIcon className="h-4 w-4" /> Convidar cliente
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -119,11 +138,13 @@ const ClientesPage = () => {
             <div className="space-y-3">
               {clients.map((c) => (
                 <div key={c.user_id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{c.name || c.email || c.user_id}</p>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {c.name || c.email || "Sem nome"}
+                    </p>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                      {c.email && <span>{c.email}</span>}
                       {c.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone}</span>}
-                      {c.email && !c.phone && <span>{c.email}</span>}
                     </div>
                   </div>
                 </div>
