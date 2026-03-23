@@ -10,7 +10,7 @@ interface Profile {
   role: AppRole | null;
   status: "pending" | "approved" | null;
   approved_at: string | null;
-  // Optional legacy/extended fields (may not exist in all deployments)
+  is_approved?: boolean;
   deleted_at?: string | null;
   access_state?: string | null;
   access_message?: string | null;
@@ -41,88 +41,104 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+export const AuthProvider = ({ children }: { ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Fetch user profile from public.profiles
   const fetchProfile = async (userId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
-      .select("*")
+      .select("id, full_name, email, role, status, approved_at, is_approved, deleted_at")
       .eq("id", userId)
-      .maybeSingle();
-    setProfile(data as Profile | null);
+      .single();
+
+    if (error) {
+      console.error("Error fetching profile:", error);
+      return null;
+    }
+
+    return data as Profile;
   };
 
+  // Fetch user roles from public.user_roles
   const fetchRoles = async (userId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", userId);
-    const r = (data ?? []).map((d: any) => d.role as AppRole);
-    setRoles(r);
+
+    if (error) {
+      console.error("Error fetching roles:", error);
+      return [];
+    }
+
+    return (data?.map((r) => r.role) as AppRole[]) || [];
   };
 
+  // Set up auth state listener
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session: Session | null) => {
+    const setupAuth = async () => {
+      // Check current session
+      const { data: { session } } = await supabase.auth.getSession();
+
       if (session?.user) {
         setUser(session.user);
-        // Use setTimeout to avoid Supabase auth deadlock
-        setTimeout(() => {
-          fetchProfile(session.user.id);
-          fetchRoles(session.user.id);
-          setIsLoading(false);
-        }, 0);
+        const prof = await fetchProfile(session.user.id);
+        setProfile(prof);
+        const userRoles = await fetchRoles(session.user.id);
+        setRoles(userRoles);
+      }
+
+      setIsLoading(false);
+    };
+
+    setupAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        const prof = await fetchProfile(session.user.id);
+        setProfile(prof);
+        const userRoles = await fetchRoles(session.user.id);
+        setRoles(userRoles);
       } else {
         setUser(null);
         setProfile(null);
         setRoles([]);
-        setIsLoading(false);
       }
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        fetchProfile(session.user.id);
-        fetchRoles(session.user.id);
-      }
-      setIsLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => subscription?.unsubscribe();
   }, []);
 
-  // Subscribe to real-time changes on the user's profile
-  useEffect(() => {
-    if (!user?.id) return;
-    const profileSubscription = supabase
-      .channel('profiles')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
-        (payload) => {
-          // Update profile when approval status changes
-          const updatedProfile = payload.new as Profile;
-          setProfile(updatedProfile);
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(profileSubscription);
-    };
-  }, [user?.id]);
+  // Compute approval status - ✅ Check all possible approval fields
+  const isApproved = 
+    profile?.status === "approved" || 
+    !!profile?.approved_at || 
+    profile?.is_approved === true;
+
+  // Primary role: admin > dono > funcionario > cliente
+  const role: AppRole = 
+    roles.includes("admin") 
+      ? "admin" 
+      : roles.includes("dono") 
+      ? "dono" 
+      : roles.includes("funcionario") 
+      ? "funcionario" 
+      : roles.includes("cliente") 
+      ? "cliente" 
+      : profile?.role ?? "cliente";
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    setRoles([]);
   };
-
-  // Primary role: admin > dono > funcionario > cliente — falls back to profile.role if user_roles is empty
-  const role: AppRole = roles.includes("admin") ? "admin" : roles.includes("dono") ? "dono" : roles.includes("funcionario") ? "funcionario" : roles.includes("cliente") ? "cliente" : profile?.role ?? "cliente";
-
-  const isApproved = profile?.status === "approved" || !!profile?.approved_at;
 
   return (
     <AuthContext.Provider
