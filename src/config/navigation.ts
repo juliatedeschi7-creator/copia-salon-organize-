@@ -30,12 +30,18 @@ export const navItems: NavItem[] = [
     icon: LayoutDashboard,
     roles: ["admin", "dono"],
   },
-{
-  label: "Minha Agenda",
-  path: "/minha-agenda",
-  icon: Calendar,
-  roles: ["cliente", "funcionario"],  // ✅ AMBOS ACESSAM
-},
+  {
+    label: "Minha Agenda",
+    path: "/minha-agenda",
+    icon: Calendar,
+    roles: ["cliente", "funcionario"],
+  },
+  {
+    label: "Conheça os Serviços",
+    path: "/servicos-catalogo",
+    icon: Scissors,
+    roles: ["cliente"],
+  },
   {
     label: "Serviços",
     path: "/servicos",
@@ -101,11 +107,5 @@ export const navItems: NavItem[] = [
     path: "/cliente-area",
     icon: UserCircle,
     roles: ["cliente"],
-  },
-  {
-    label: "Minha Agenda",
-    path: "/minha-agenda",
-    icon: Calendar,
-    roles: ["cliente", "funcionario"],
   },
 ];
