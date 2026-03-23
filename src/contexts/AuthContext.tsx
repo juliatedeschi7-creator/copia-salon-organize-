@@ -5,17 +5,14 @@ import type { User } from "@supabase/supabase-js";
 
 interface Profile {
   id: string;
-  user_id?: string;
-  name: string | null;
+  full_name: string | null;
   email: string | null;
   role: AppRole | null;
   status: "pending" | "approved" | null;
   approved_at: string | null;
   is_approved?: boolean;
-  deleted_at?: string | null;
-  access_state?: string | null;
-  access_message?: string | null;
-  notice_until?: string | null;
+  phone?: string | null;
+  user_id?: string | null;
 }
 
 interface AuthContextType {
@@ -54,7 +51,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, user_id, name, email, role, status, approved_at, is_approved, deleted_at")
+      .select("id, full_name, email, role, status, approved_at, is_approved, user_id, phone")
       .eq("id", userId)
       .single();
 
@@ -88,10 +85,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return [];
     }
 
-    const roles = (data?.map((r) => r.role) as AppRole[]) || [];
-    console.log("✅ Roles fetched:", roles);
+    const rolesArray = (data?.map((r) => r.role) as AppRole[]) || [];
+    console.log("✅ Roles fetched:", rolesArray);
     
-    return roles;
+    return rolesArray;
   };
 
   // Set up auth state listener
@@ -155,6 +152,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       : roles.includes("cliente") 
       ? "cliente" 
       : profile?.role ?? "cliente";
+
+  console.log("🟠 Current role:", role, "roles array:", roles);
 
   const signOut = async () => {
     await supabase.auth.signOut();
