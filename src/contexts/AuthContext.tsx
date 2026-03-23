@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppRole } from "@/types";
 import type { User } from "@supabase/supabase-js";
@@ -13,6 +13,10 @@ interface Profile {
   is_approved?: boolean;
   phone?: string | null;
   user_id?: string | null;
+  deleted_at?: string | null;
+  access_state?: string | null;
+  access_message?: string | null;
+  notice_until?: string | null;
 }
 
 interface AuthContextType {
@@ -23,6 +27,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isApproved: boolean;
   isLoading: boolean;
+  profileLoaded: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -34,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   isApproved: false,
   isLoading: true,
+  profileLoaded: false,
   signOut: async () => {},
 });
 
@@ -44,6 +50,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const mountedRef = useRef(true);
+  const prevUserIdRef = useRef<string | null>(null);
 
   // Fetch user profile from public.profiles
   const fetchProfile = async (userId: string) => {
@@ -51,7 +60,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role, status, approved_at, is_approved, user_id, phone")
+      .select("id, full_name, email, role, status, approved_at, is_approved, user_id, phone, deleted_at, access_state, access_message, notice_until")
       .eq("id", userId)
       .single();
 
@@ -91,46 +100,60 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return rolesArray;
   };
 
-  // Set up auth state listener
+  // Set up auth state listener — single source of truth via onAuthStateChange
   useEffect(() => {
-    const setupAuth = async () => {
-      // Check current session
-      const { data: { session } } = await supabase.auth.getSession();
+    mountedRef.current = true;
 
-      if (session?.user) {
-        console.log("🔐 User session found:", session.user.email);
-        setUser(session.user);
-        const prof = await fetchProfile(session.user.id);
-        setProfile(prof);
-        const userRoles = await fetchRoles(session.user.id);
-        setRoles(userRoles);
-      }
-
-      setIsLoading(false);
-    };
-
-    setupAuth();
-
-    // Listen for auth changes
+    // onAuthStateChange fires INITIAL_SESSION synchronously on mount,
+    // covering the "check current session" case and eliminating the race
+    // condition that existed when using getSession() in parallel.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("🔄 Auth state changed:", event);
-      
+
+      if (!mountedRef.current) return;
+
       if (session?.user) {
+        const userId = session.user.id;
+        const isNewUser = userId !== prevUserIdRef.current;
+
         console.log("🔐 User authenticated:", session.user.email);
         setUser(session.user);
-        const prof = await fetchProfile(session.user.id);
+
+        // Only reset profileLoaded (show spinner) when a different user signs in.
+        // For token refreshes / updates of the same session, keep the existing
+        // profile visible and silently refresh it in the background.
+        if (isNewUser) {
+          prevUserIdRef.current = userId;
+          setProfileLoaded(false);
+        }
+
+        const [prof, userRoles] = await Promise.all([
+          fetchProfile(session.user.id),
+          fetchRoles(session.user.id),
+        ]);
+
+        if (!mountedRef.current) return;
+
         setProfile(prof);
-        const userRoles = await fetchRoles(session.user.id);
         setRoles(userRoles);
+        setProfileLoaded(true);
       } else {
         console.log("🔴 User logged out");
         setUser(null);
         setProfile(null);
         setRoles([]);
+        setProfileLoaded(false);
+        prevUserIdRef.current = null;
       }
+
+      // Mark initial auth check as complete after first event is handled
+      setIsLoading(false);
     });
 
-    return () => subscription?.unsubscribe();
+    return () => {
+      mountedRef.current = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
   // Compute approval status - ✅ Check all possible approval fields
@@ -164,7 +187,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, signOut }}
+      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, profileLoaded, signOut }}
     >
       {children}
     </AuthContext.Provider>
