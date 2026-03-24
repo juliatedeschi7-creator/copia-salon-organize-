@@ -35,7 +35,7 @@ import { Loader2 } from "lucide-react";
 const queryClient = new QueryClient();
 
 const AppRoutes = () => {
-  const { isAuthenticated, isApproved, isLoading, role, profile, profileLoaded } = useAuth();
+  const { isAuthenticated, isApproved, isLoading, role, profile, profileLoaded, profileError } = useAuth();
   const { salon, isLoading: salonLoading } = useSalon();
 
   if (isLoading || (isAuthenticated && (salonLoading || !profileLoaded))) {
@@ -53,6 +53,23 @@ const AppRoutes = () => {
         <Route path="/convite/:linkId" element={<ClientInvitePage />} />
         <Route path="/convite-equipe/:token" element={<TeamInvitePage />} />
         <Route path="*" element={<AuthPage />} />
+      </Routes>
+    );
+  }
+
+  // Session/storage error: profile could not be loaded (e.g. Safari ITP / stale
+  // token). Show a clear error instead of "Aguardando aprovação" which is
+  // misleading — the user IS approved but the session failed.
+  if (profileError) {
+    return (
+      <Routes>
+        <Route path="*" element={
+          <BlockedAccessPage
+            title="Erro ao carregar perfil"
+            description="Não foi possível carregar os dados do seu perfil. Isso pode ser um problema de sessão ou conexão."
+            message="Saia da conta e entre novamente. Se o problema persistir, tente limpar os dados do navegador para este site."
+          />
+        } />
       </Routes>
     );
   }

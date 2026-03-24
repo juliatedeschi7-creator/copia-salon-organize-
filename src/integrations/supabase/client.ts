@@ -8,10 +8,25 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
+// Safe localStorage wrapper: Safari private mode / ITP can throw on access.
+// Falls back to undefined so supabase-js uses its built-in memory storage
+// rather than crashing on storage.getItem().
+function safeStorage(): Storage | undefined {
+  try {
+    const testKey = '__sb_storage_test__';
+    localStorage.setItem(testKey, '1');
+    localStorage.removeItem(testKey);
+    return localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: safeStorage(),
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: true,
   }
 });

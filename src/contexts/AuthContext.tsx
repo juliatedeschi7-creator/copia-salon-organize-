@@ -28,6 +28,8 @@ interface AuthContextType {
   isApproved: boolean;
   isLoading: boolean;
   profileLoaded: boolean;
+  /** true when profile could not be loaded due to a session/network error (not a "not approved" situation) */
+  profileError: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -40,6 +42,7 @@ const AuthContext = createContext<AuthContextType>({
   isApproved: false,
   isLoading: true,
   profileLoaded: false,
+  profileError: false,
   signOut: async () => {},
 });
 
@@ -51,8 +54,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [profileError, setProfileError] = useState(false);
   const mountedRef = useRef(true);
   const prevUserIdRef = useRef<string | null>(null);
+  // Limit session-refresh retries to 1 per authenticated user to avoid loops
+  const retryDoneRef = useRef(false);
 
   // Fetch user profile from public.profiles
   const fetchProfile = async (userId: string) => {
@@ -125,6 +131,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (isNewUser) {
           prevUserIdRef.current = userId;
           setProfileLoaded(false);
+          setProfileError(false);
+          retryDoneRef.current = false;
         }
 
         const [prof, userRoles] = await Promise.all([
@@ -134,16 +142,57 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (!mountedRef.current) return;
 
-        setProfile(prof);
-        setRoles(userRoles);
-        setProfileLoaded(true);
+        // If profile fetch failed and we haven't retried yet, attempt a session
+        // refresh (fixes Safari / ITP where the stored token is stale) and retry.
+        if (prof === null && !retryDoneRef.current) {
+          retryDoneRef.current = true;
+          console.warn("⚠️ Profile fetch returned null — attempting session refresh and retry...");
+
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+
+          if (!mountedRef.current) return;
+
+          if (!refreshError && refreshData.session?.user) {
+            const [prof2, userRoles2] = await Promise.all([
+              fetchProfile(refreshData.session.user.id),
+              fetchRoles(refreshData.session.user.id),
+            ]);
+
+            if (!mountedRef.current) return;
+
+            if (prof2 !== null) {
+              // Retry succeeded
+              setProfile(prof2);
+              setRoles(userRoles2);
+              setProfileError(false);
+              setProfileLoaded(true);
+              setIsLoading(false);
+              return;
+            }
+          }
+
+          // Both attempts failed — mark as session error so the UI can show an
+          // appropriate message instead of the "Aguardando aprovação" screen.
+          console.error("❌ Profile could not be loaded after session refresh — marking profileError.");
+          setProfile(null);
+          setRoles([]);
+          setProfileError(true);
+          setProfileLoaded(true);
+        } else {
+          setProfile(prof);
+          setRoles(userRoles);
+          setProfileError(false);
+          setProfileLoaded(true);
+        }
       } else {
         console.log("🔴 User logged out");
         setUser(null);
         setProfile(null);
         setRoles([]);
         setProfileLoaded(false);
+        setProfileError(false);
         prevUserIdRef.current = null;
+        retryDoneRef.current = false;
       }
 
       // Mark initial auth check as complete after first event is handled
@@ -187,7 +236,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, profileLoaded, signOut }}
+      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, profileLoaded, profileError, signOut }}
     >
       {children}
     </AuthContext.Provider>
