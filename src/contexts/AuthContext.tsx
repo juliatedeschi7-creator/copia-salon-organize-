@@ -282,10 +282,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   console.log("🟠 Current role:", role, "roles array:", roles);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    // Sign out from all sessions (global scope) so every device is invalidated.
+    try {
+      await supabase.auth.signOut({ scope: "global" });
+    } catch {
+      // Ignore errors — we still proceed with local cleanup below.
+    }
+
+    // Clear in-memory state.
     setUser(null);
     setProfile(null);
     setRoles([]);
+
+    // Clear Supabase auth storage keys (always prefixed with "sb-") so stale
+    // tokens cannot silently re-authenticate after the redirect.
+    if (typeof window !== "undefined") {
+      try {
+        [localStorage, sessionStorage].forEach((store) => {
+          Object.keys(store)
+            .filter((k) => k.startsWith("sb-"))
+            .forEach((k) => store.removeItem(k));
+        });
+      } catch {
+        // Storage access may be blocked in some browsers (e.g. Safari ITP).
+      }
+
+      // Hard navigation forces a full app reinitialisation so the user is never
+      // left stuck on an in-memory error route (critical on mobile / Safari).
+      window.location.assign("/");
+    }
   };
 
   return (
