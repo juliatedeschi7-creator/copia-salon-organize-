@@ -48,6 +48,16 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
+/** Wraps a promise with a hard deadline; rejects after `ms` ms if not settled. */
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const id = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(id); resolve(v); },
+      (e) => { clearTimeout(id); reject(e); }
+    );
+  });
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -59,6 +69,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const prevUserIdRef = useRef<string | null>(null);
   // Limit session-refresh retries to 1 per authenticated user to avoid loops
   const retryDoneRef = useRef(false);
+  // Track whether the loading cycle completed to allow the safety-timer to
+  // detect a stuck state and prevent double-processing with getSession().
+  const loadingCompleteRef = useRef(false);
 
   // Fetch user profile from public.profiles
   const fetchProfile = async (userId: string) => {
@@ -109,10 +122,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // Set up auth state listener — single source of truth via onAuthStateChange
   useEffect(() => {
     mountedRef.current = true;
+    loadingCompleteRef.current = false;
 
-    // onAuthStateChange fires INITIAL_SESSION synchronously on mount,
-    // covering the "check current session" case and eliminating the race
-    // condition that existed when using getSession() in parallel.
+    // Safety timer: if the normal auth flow does not complete within 10 s
+    // (e.g. fetchProfile/fetchRoles hang), force-unblock the UI so the user
+    // is never stuck on an infinite spinner.
+    const safetyTimer = setTimeout(() => {
+      if (!mountedRef.current || loadingCompleteRef.current) return;
+      console.warn("⚠️ Auth safety timeout: forcing state to unblock UI");
+      loadingCompleteRef.current = true;
+      setIsLoading(false);
+      setProfileLoaded(true);
+      setProfileError(true);
+    }, 10_000);
+
+    // Fallback: call getSession() on mount so that if INITIAL_SESSION does not
+    // fire (edge case in some browsers/environments) and there is no active
+    // session, loading is unblocked immediately instead of waiting for the timer.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mountedRef.current || loadingCompleteRef.current) return;
+      if (!session) {
+        loadingCompleteRef.current = true;
+        setIsLoading(false);
+        setProfileLoaded(true);
+      }
+    }).catch(() => {
+      if (mountedRef.current && !loadingCompleteRef.current) {
+        loadingCompleteRef.current = true;
+        setIsLoading(false);
+        setProfileLoaded(true);
+      }
+    });
+
+    // onAuthStateChange is the primary source of truth for auth state.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("🔄 Auth state changed:", event);
 
@@ -130,14 +172,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // profile visible and silently refresh it in the background.
         if (isNewUser) {
           prevUserIdRef.current = userId;
+          loadingCompleteRef.current = false;
           setProfileLoaded(false);
           setProfileError(false);
           retryDoneRef.current = false;
         }
 
         const [prof, userRoles] = await Promise.all([
-          fetchProfile(session.user.id),
-          fetchRoles(session.user.id),
+          withTimeout(fetchProfile(session.user.id), 8_000).catch((e) => {
+            console.error("⏱️ fetchProfile timed out or failed:", e);
+            return null;
+          }),
+          withTimeout(fetchRoles(session.user.id), 8_000).catch((e) => {
+            console.error("⏱️ fetchRoles timed out or failed:", e);
+            return [] as AppRole[];
+          }),
         ]);
 
         if (!mountedRef.current) return;
@@ -154,14 +203,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
           if (!refreshError && refreshData.session?.user) {
             const [prof2, userRoles2] = await Promise.all([
-              fetchProfile(refreshData.session.user.id),
-              fetchRoles(refreshData.session.user.id),
+              withTimeout(fetchProfile(refreshData.session.user.id), 8_000).catch(() => null),
+              withTimeout(fetchRoles(refreshData.session.user.id), 8_000).catch(() => [] as AppRole[]),
             ]);
 
             if (!mountedRef.current) return;
 
             if (prof2 !== null) {
               // Retry succeeded
+              loadingCompleteRef.current = true;
               setProfile(prof2);
               setRoles(userRoles2);
               setProfileError(false);
@@ -174,11 +224,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           // Both attempts failed — mark as session error so the UI can show an
           // appropriate message instead of the "Aguardando aprovação" screen.
           console.error("❌ Profile could not be loaded after session refresh — marking profileError.");
+          loadingCompleteRef.current = true;
           setProfile(null);
           setRoles([]);
           setProfileError(true);
           setProfileLoaded(true);
         } else {
+          loadingCompleteRef.current = true;
           setProfile(prof);
           setRoles(userRoles);
           setProfileError(false);
@@ -186,6 +238,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       } else {
         console.log("🔴 User logged out");
+        loadingCompleteRef.current = true;
         setUser(null);
         setProfile(null);
         setRoles([]);
@@ -201,6 +254,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     return () => {
       mountedRef.current = false;
+      clearTimeout(safetyTimer);
       subscription?.unsubscribe();
     };
   }, []);

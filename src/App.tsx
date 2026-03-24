@@ -38,7 +38,7 @@ const AppRoutes = () => {
   const { isAuthenticated, isApproved, isLoading, role, profile, profileLoaded, profileError } = useAuth();
   const { salon, isLoading: salonLoading } = useSalon();
 
-  if (isLoading || (isAuthenticated && (salonLoading || !profileLoaded))) {
+  if (!profileError && (isLoading || (isAuthenticated && (salonLoading || !profileLoaded)))) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
