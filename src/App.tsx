@@ -35,7 +35,7 @@ import { Loader2 } from "lucide-react";
 const queryClient = new QueryClient();
 
 const AppRoutes = () => {
-  const { isAuthenticated, isApproved, isLoading, role, profile, profileLoaded, profileError } = useAuth();
+  const { isAuthenticated, isApproved, isLoading, role, profile, profileLoaded, profileError, profileDiagnostic } = useAuth();
   const { salon, isLoading: salonLoading } = useSalon();
 
   if (!profileError && (isLoading || (isAuthenticated && (salonLoading || !profileLoaded)))) {
@@ -68,6 +68,7 @@ const AppRoutes = () => {
             title="Erro ao carregar perfil"
             description="Não foi possível carregar os dados do seu perfil. Isso pode ser um problema de sessão ou conexão."
             message="Saia da conta e entre novamente. Se o problema persistir, tente limpar os dados do navegador para este site."
+            diagnostic={profileDiagnostic}
           />
         } />
       </Routes>

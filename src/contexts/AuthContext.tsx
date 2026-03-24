@@ -30,6 +30,8 @@ interface AuthContextType {
   profileLoaded: boolean;
   /** true when profile could not be loaded due to a session/network error (not a "not approved" situation) */
   profileError: boolean;
+  /** Short diagnostic string (no PII/tokens) set when profileError is true, for in-app display. */
+  profileDiagnostic: string | null;
   signOut: () => Promise<void>;
 }
 
@@ -43,6 +45,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   profileLoaded: false,
   profileError: false,
+  profileDiagnostic: null,
   signOut: async () => {},
 });
 
@@ -58,6 +61,17 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
     );
   });
 
+/** Returns the current wall-clock time as HH:MM:SS for diagnostic labels. */
+const nowHMS = () => new Date().toTimeString().slice(0, 8);
+
+/** Formats a caught error into a short diagnostic string for a named operation. */
+const diagErrorStr = (operation: string, error: unknown): string => {
+  const e = error as Error | null | undefined;
+  const isTimeout = e?.message?.includes("Timeout");
+  if (isTimeout) return `${operation}:timeout-8s`;
+  return `${operation}:${String(e?.message || error).slice(0, 80)}`;
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -65,6 +79,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [profileError, setProfileError] = useState(false);
+  const [profileDiagnostic, setProfileDiagnostic] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const prevUserIdRef = useRef<string | null>(null);
   // Limit session-refresh retries to 1 per authenticated user to avoid loops
@@ -74,7 +89,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const loadingCompleteRef = useRef(false);
 
   // Fetch user profile from public.profiles
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, diag?: string[]): Promise<Profile | null> => {
     console.log("🔵 Fetching profile for userId:", userId);
     
     const { data, error } = await supabase
@@ -85,6 +100,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error("❌ Error fetching profile:", error);
+      if (diag) {
+        const parts: string[] = ["fetchProfile"];
+        if (error.message) parts.push(error.message.slice(0, 100));
+        if (error.code) parts.push(`code:${error.code}`);
+        const status = (error as unknown as Record<string, unknown>).status;
+        if (status) parts.push(`HTTP${status}`);
+        diag.push(parts.join(" "));
+      }
       return null;
     }
 
@@ -100,7 +123,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // Fetch user roles from public.user_roles
-  const fetchRoles = async (userId: string) => {
+  const fetchRoles = async (userId: string, diag?: string[]): Promise<AppRole[]> => {
     console.log("🔵 Fetching roles for userId:", userId);
     
     const { data, error } = await supabase
@@ -110,6 +133,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error("❌ Error fetching roles:", error);
+      if (diag) {
+        const parts: string[] = ["fetchRoles"];
+        if (error.message) parts.push(error.message.slice(0, 100));
+        if (error.code) parts.push(`code:${error.code}`);
+        const status = (error as unknown as Record<string, unknown>).status;
+        if (status) parts.push(`HTTP${status}`);
+        diag.push(parts.join(" "));
+      }
       return [];
     }
 
@@ -134,6 +165,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoading(false);
       setProfileLoaded(true);
       setProfileError(true);
+      setProfileDiagnostic(`safety-timeout:10s ts:${nowHMS()}`);
     }, 10_000);
 
     // Fallback: call getSession() on mount so that if INITIAL_SESSION does not
@@ -175,15 +207,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           loadingCompleteRef.current = false;
           setProfileLoaded(false);
           setProfileError(false);
+          setProfileDiagnostic(null);
           retryDoneRef.current = false;
         }
 
+        const diagParts: string[] = [`ts:${nowHMS()}`];
+
         const [prof, userRoles] = await Promise.all([
-          withTimeout(fetchProfile(session.user.id), 8_000).catch((e) => {
+          withTimeout(fetchProfile(session.user.id, diagParts), 8_000).catch((e) => {
+            diagParts.push(diagErrorStr("fetchProfile", e));
             console.error("⏱️ fetchProfile timed out or failed:", e);
             return null;
           }),
-          withTimeout(fetchRoles(session.user.id), 8_000).catch((e) => {
+          withTimeout(fetchRoles(session.user.id, diagParts), 8_000).catch((e) => {
+            diagParts.push(diagErrorStr("fetchRoles", e));
             console.error("⏱️ fetchRoles timed out or failed:", e);
             return [] as AppRole[];
           }),
@@ -201,10 +238,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
           if (!mountedRef.current) return;
 
+          if (refreshError) {
+            diagParts.push(`refreshSession:${refreshError.message?.slice(0, 80) || "error"}`);
+          }
+
           if (!refreshError && refreshData.session?.user) {
             const [prof2, userRoles2] = await Promise.all([
-              withTimeout(fetchProfile(refreshData.session.user.id), 8_000).catch(() => null),
-              withTimeout(fetchRoles(refreshData.session.user.id), 8_000).catch(() => [] as AppRole[]),
+              withTimeout(fetchProfile(refreshData.session.user.id, diagParts), 8_000).catch((e) => {
+                diagParts.push(diagErrorStr("fetchProfile-retry", e));
+                return null;
+              }),
+              withTimeout(fetchRoles(refreshData.session.user.id, diagParts), 8_000).catch((e) => {
+                diagParts.push(diagErrorStr("fetchRoles-retry", e));
+                return [] as AppRole[];
+              }),
             ]);
 
             if (!mountedRef.current) return;
@@ -228,6 +275,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setProfile(null);
           setRoles([]);
           setProfileError(true);
+          setProfileDiagnostic(diagParts.join(" | "));
           setProfileLoaded(true);
         } else {
           loadingCompleteRef.current = true;
@@ -244,6 +292,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setRoles([]);
         setProfileLoaded(false);
         setProfileError(false);
+        setProfileDiagnostic(null);
         prevUserIdRef.current = null;
         retryDoneRef.current = false;
       }
@@ -315,7 +364,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, profileLoaded, profileError, signOut }}
+      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, profileLoaded, profileError, profileDiagnostic, signOut }}
     >
       {children}
     </AuthContext.Provider>
