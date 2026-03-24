@@ -51,25 +51,31 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    // For dono/funcionario, fetch via salon_members
-    const { data: membership } = await supabase
-      .from("salon_members")
-      .select("salon_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .maybeSingle();
-
-    if (membership?.salon_id) {
-      const { data } = await supabase
-        .from("salons")
-        .select("*")
-        .eq("id", membership.salon_id)
+    try {
+      // For dono/funcionario, fetch via salon_members
+      const { data: membership } = await supabase
+        .from("salon_members")
+        .select("salon_id")
+        .eq("user_id", user.id)
+        .limit(1)
         .maybeSingle();
-      setSalon(data as Salon | null);
-    } else {
+
+      if (membership?.salon_id) {
+        const { data } = await supabase
+          .from("salons")
+          .select("*")
+          .eq("id", membership.salon_id)
+          .maybeSingle();
+        setSalon(data as Salon | null);
+      } else {
+        setSalon(null);
+      }
+    } catch (e) {
+      console.error("❌ Error fetching salon:", e);
       setSalon(null);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   useEffect(() => {
