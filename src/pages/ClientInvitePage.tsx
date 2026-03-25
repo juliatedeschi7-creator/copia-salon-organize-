@@ -174,7 +174,7 @@ const ClientInvitePage = () => {
               <ul className="mt-3 space-y-1 text-left text-xs text-muted-foreground">
                 <li>📅 Agende atendimentos com facilidade</li>
                 <li>💆 Confira o catálogo de serviços do salão</li>
-                <li>�� Acompanhe o uso e evolução dos seus pacotes</li>
+                <li>🗒️ Acompanhe o uso e evolução dos seus pacotes</li>
                 <li>🔔 Receba notificações e comunicados do salão</li>
               </ul>
               <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/60 p-2 text-left text-xs text-muted-foreground">
