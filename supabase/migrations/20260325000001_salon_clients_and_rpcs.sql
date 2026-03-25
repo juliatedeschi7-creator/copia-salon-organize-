@@ -166,6 +166,9 @@ BEGIN
 
   -- Determine role / status based on sign-up context
   IF NEW.email = 'juliatedeschi7@gmail.com' THEN
+    -- NOTE: this hardcoded admin email is consistent with the pre-existing
+    -- handle_new_user trigger pattern. Consider moving to an admin config
+    -- table in a future migration.
     _role        := 'admin';
     _status      := 'approved';
     _approved_at := now();
@@ -200,7 +203,7 @@ BEGIN
                     ELSE profiles.approved_at
                   END;
 
-  -- Admin gets a user_roles entry
+  -- Admin gets a user_roles entry (same email check as above — consistent with pre-existing pattern)
   IF NEW.email = 'juliatedeschi7@gmail.com' THEN
     INSERT INTO public.user_roles (user_id, role)
     VALUES (NEW.id, 'admin')

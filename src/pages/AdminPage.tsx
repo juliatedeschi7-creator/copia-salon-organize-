@@ -93,7 +93,9 @@ const AdminPage = () => {
   const [approving, setApproving] = useState(false);
 
   // Fetch profiles — admin only manages dono/funcionario (not cliente).
-  // Clients are approved by the salon owner via the owner approval UI.
+  // Clients are approved by the salon owner (dono) via the owner approval UI.
+  // Filter: include rows with null role (newly created, no role assigned yet)
+  //         but exclude rows explicitly set to 'cliente'.
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
