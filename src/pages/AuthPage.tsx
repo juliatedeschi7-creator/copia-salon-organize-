@@ -21,19 +21,26 @@ const AuthPage = () => {
     setLoading(true);
 
     if (isLogin) {
-      // Switch storage based on "remember me"
-      if (!rememberMe) {
-        localStorage.removeItem("sb-kxgfpjvetdbummcsacol-auth-token");
-      }
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         toast.error(error.message);
       } else if (!rememberMe) {
-        // Copy token to sessionStorage and remove from localStorage
-        const key = Object.keys(localStorage).find(k => k.startsWith("sb-") && k.endsWith("-auth-token"));
-        if (key) {
-          sessionStorage.setItem(key, localStorage.getItem(key)!);
-          localStorage.removeItem(key);
+        // Move the Supabase auth token from localStorage to sessionStorage so
+        // the session is not persisted across browser restarts. Wrapped in
+        // try/catch because storage access can be blocked on Safari/ITP.
+        try {
+          const key = Object.keys(localStorage).find(
+            (k) => k.startsWith("sb-") && k.endsWith("-auth-token"),
+          );
+          if (key) {
+            const value = localStorage.getItem(key);
+            if (value !== null) {
+              sessionStorage.setItem(key, value);
+            }
+            localStorage.removeItem(key);
+          }
+        } catch {
+          // Storage access may be blocked (e.g. Safari ITP) — ignore.
         }
       }
     } else {
