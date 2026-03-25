@@ -92,12 +92,16 @@ const AdminPage = () => {
   const [approvalSalonId, setApprovalSalonId] = useState("");
   const [approving, setApproving] = useState(false);
 
-  // Fetch all profiles using only existing schema columns
+  // Fetch profiles — admin only manages dono/funcionario (not cliente).
+  // Clients are approved by the salon owner (dono) via the owner approval UI.
+  // Filter: include rows with null role (newly created, no role assigned yet)
+  //         but exclude rows explicitly set to 'cliente'.
   const fetchProfiles = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("profiles")
       .select("id, full_name, email, role, status, approved_at, created_at, updated_at, deleted_at")
+      .or("role.is.null,role.neq.cliente")
       .order("full_name");
     if (error) {
       toast({ title: "Erro ao carregar usuários", description: error.message, variant: "destructive" });

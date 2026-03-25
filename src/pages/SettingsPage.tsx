@@ -46,6 +46,10 @@ const SettingsPage = () => {
   const [newInviteRole, setNewInviteRole] = useState<"dono" | "funcionario">("funcionario");
   const [creatingInvite, setCreatingInvite] = useState(false);
 
+  // Pending clients awaiting dono approval
+  const [pendingClients, setPendingClients] = useState<any[]>([]);
+  const [approvingClientId, setApprovingClientId] = useState<string | null>(null);
+
   useEffect(() => {
     if (salon) {
       setForm({ ...salon, reminder_hours: salon.reminder_hours ?? [24, 2] });
@@ -69,6 +73,18 @@ const SettingsPage = () => {
       .eq("salon_id", salon.id)
       .in("role", ["dono", "funcionario"])
       .then(({ data }) => setTeamMembers(data || []));
+
+    // Load pending clients awaiting dono approval (via salon_clients + profiles)
+    supabase
+      .from("salon_clients")
+      .select("user_id, profiles(id, full_name, email, status)")
+      .eq("salon_id", salon.id)
+      .then(({ data }) => {
+        const pending = (data || []).filter(
+          (row: any) => row.profiles?.status === "pending"
+        );
+        setPendingClients(pending);
+      });
 
     // Load pending team invites
     supabase
@@ -142,6 +158,24 @@ const SettingsPage = () => {
       }
     }
     setCreatingInvite(false);
+  };
+
+  const handleApproveClient = async (clientUserId: string) => {
+    setApprovingClientId(clientUserId);
+    const { data, error } = await supabase.rpc("approve_client", {
+      _client_user_id: clientUserId,
+    });
+    setApprovingClientId(null);
+    if (error) {
+      toast.error("Erro ao aprovar cliente: " + error.message);
+    } else if (data === "forbidden") {
+      toast.error("Sem permissão para aprovar este cliente.");
+    } else if (data === "not_found") {
+      toast.error("Cliente não encontrado.");
+    } else {
+      toast.success("Cliente aprovado com sucesso!");
+      setPendingClients((prev) => prev.filter((c) => c.user_id !== clientUserId));
+    }
   };
 
   const handleDeleteTeamInvite = async (id: string) => {
@@ -477,6 +511,45 @@ const SettingsPage = () => {
         </TabsContent>
 
         <TabsContent value="equipe" className="space-y-4">
+          {/* Pending clients awaiting dono approval */}
+          {pendingClients.length > 0 && (
+            <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg text-amber-800 dark:text-amber-200">
+                  <Users className="h-5 w-5" />
+                  Clientes Pendentes
+                  <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+                    {pendingClients.length}
+                  </span>
+                </CardTitle>
+                <CardDescription>Clientes que se cadastraram pelo link do salão e aguardam aprovação</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {pendingClients.map((c: any) => (
+                    <div key={c.user_id} className="flex items-center justify-between rounded-lg border border-amber-200 bg-white p-3 dark:border-amber-800 dark:bg-background">
+                      <div>
+                        <p className="text-sm font-medium">{c.profiles?.full_name || c.profiles?.email || c.user_id}</p>
+                        <p className="text-xs text-muted-foreground">{c.profiles?.email}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handleApproveClient(c.user_id)}
+                        disabled={approvingClientId === c.user_id}
+                        className="gap-1"
+                      >
+                        {approvingClientId === c.user_id && (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        )}
+                        Aprovar
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
