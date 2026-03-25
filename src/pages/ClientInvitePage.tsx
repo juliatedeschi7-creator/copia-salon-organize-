@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Loader2, Scissors } from "lucide-react";
+import { Loader2, Scissors, Clock } from "lucide-react";
 import { toast } from "sonner";
 
 interface SalonInfo {
@@ -28,6 +28,25 @@ const ClientInvitePage = () => {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  /** Call accept_client_invite RPC to link user to salon as pending cliente */
+  const linkClientToSalon = async (userId: string): Promise<boolean> => {
+    if (!linkId) return false;
+    const { data, error } = await supabase.rpc("accept_client_invite", {
+      _link: linkId,
+      _user_id: userId,
+    });
+    if (error) {
+      console.error("accept_client_invite error:", error.message);
+      toast.error("Não foi possível vincular sua conta ao salão. Tente novamente.");
+      return false;
+    }
+    if (data === "not_found") {
+      toast.error("Link de convite inválido ou salão não encontrado.");
+      return false;
+    }
+    return true;
+  };
+
   useEffect(() => {
     const fetchSalon = async () => {
       if (!linkId) { setNotFound(true); setLoading(false); return; }
@@ -40,21 +59,13 @@ const ClientInvitePage = () => {
       const row = Array.isArray(data) ? data[0] : data;
       setSalon(row as SalonInfo);
 
-      // If user is already authenticated, link them to this salon directly
+      // If user is already authenticated, link them to this salon via RPC
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        const salonId = (row as SalonInfo).id;
-        const userId = session.user.id;
-        // Upsert salon membership as cliente
-        const { error: memberError } = await supabase
-          .from("salon_members")
-          .upsert({ salon_id: salonId, user_id: userId, role: "cliente" }, { onConflict: "salon_id,user_id" });
-        if (memberError) {
-          console.error("Erro ao vincular ao salão:", memberError.message);
-          toast.error("Não foi possível vincular sua conta ao salão. Tente novamente.");
-        } else {
-          toast.success("Você foi vinculado ao salão com sucesso!");
-          navigate("/cliente-area");
+        const ok = await linkClientToSalon(session.user.id);
+        if (ok) {
+          toast.success("Cadastro de cliente registrado! Aguardando aprovação do salão.");
+          navigate("/");
           return;
         }
       }
@@ -62,6 +73,7 @@ const ClientInvitePage = () => {
       setLoading(false);
     };
     fetchSalon();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkId, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -74,35 +86,25 @@ const ClientInvitePage = () => {
         toast.error(error.message);
         setSubmitting(false);
       } else {
-        // Link cliente ao salão após login
-        if (salon) {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            const { error: memberError } = await supabase
-              .from("salon_members")
-              .upsert(
-                { salon_id: salon.id, user_id: user.id, role: "cliente" },
-                { onConflict: "salon_id,user_id" }
-              );
-            if (memberError) {
-              console.error("Erro ao vincular ao salão:", memberError.message);
-            }
-          }
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await linkClientToSalon(user.id);
         }
-        navigate("/cliente-area");
+        toast.success("Login realizado! Aguardando aprovação do dono do salão.");
+        navigate("/");
       }
     } else {
-      // SIGN UP - Criar conta nova
+      // SIGN UP
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { 
+          data: {
             name,
             full_name: name,
-            salon_client_link: linkId 
+            salon_client_link: linkId,
           },
-          emailRedirectTo: window.location.origin + "/cliente-area",
+          emailRedirectTo: window.location.origin,
         },
       });
 
@@ -110,34 +112,13 @@ const ClientInvitePage = () => {
         toast.error(error.message);
         setSubmitting(false);
       } else if (data?.user) {
-        // ✅ NOVO: Vincular cliente ao salão IMEDIATAMENTE após sign up
-        if (salon) {
-          const { error: memberError } = await supabase
-            .from("salon_members")
-            .insert({
-              salon_id: salon.id,
-              user_id: data.user.id,
-              role: "cliente"
-            });
-
-          if (memberError) {
-            console.error("Erro ao vincular ao salão:", memberError.message);
-            toast.error("Conta criada, mas houve um erro ao vincular ao salão. Tente fazer login novamente.");
-          } else {
-            toast.success("Conta criada com sucesso! Bem-vindo ao salão!");
-            // Auto-login após criar conta
-            const { error: signInError } = await supabase.auth.signInWithPassword({ 
-              email, 
-              password 
-            });
-            if (!signInError) {
-              navigate("/cliente-area");
-              return;
-            }
-          }
+        // Auto sign-in so we can call the RPC immediately
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (!signInError) {
+          await linkClientToSalon(data.user.id);
         }
-        toast.success("Conta criada com sucesso! Você já pode fazer login.");
-        setSubmitting(false);
+        toast.success("Conta criada! Aguardando aprovação do dono do salão.");
+        navigate("/");
       } else {
         setSubmitting(false);
       }
@@ -189,12 +170,18 @@ const ClientInvitePage = () => {
               : "Crie sua conta e acesse sua área exclusiva"}
           </CardDescription>
           {!isLogin && (
-            <ul className="mt-3 space-y-1 text-left text-xs text-muted-foreground">
-              <li>📅 Agende atendimentos com facilidade</li>
-              <li>💆 Confira o catálogo de serviços do salão</li>
-              <li>📦 Acompanhe o uso e evolução dos seus pacotes</li>
-              <li>🔔 Receba notificações e comunicados do salão</li>
-            </ul>
+            <>
+              <ul className="mt-3 space-y-1 text-left text-xs text-muted-foreground">
+                <li>📅 Agende atendimentos com facilidade</li>
+                <li>💆 Confira o catálogo de serviços do salão</li>
+                <li>�� Acompanhe o uso e evolução dos seus pacotes</li>
+                <li>🔔 Receba notificações e comunicados do salão</li>
+              </ul>
+              <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/60 p-2 text-left text-xs text-muted-foreground">
+                <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>Após criar a conta, aguarde a aprovação do dono do salão para acessar sua área.</span>
+              </div>
+            </>
           )}
         </CardHeader>
         <CardContent>

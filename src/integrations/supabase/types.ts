@@ -576,6 +576,42 @@ export type Database = {
         }
         Relationships: []
       }
+      salon_clients: {
+        Row: {
+          created_at: string
+          id: string
+          salon_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          salon_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          salon_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_clients_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: false
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salon_clients_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salon_members: {
         Row: {
           created_at: string
@@ -783,6 +819,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_client_invite: {
+        Args: { _link: string; _user_id: string }
+        Returns: string
+      }
+      approve_client: {
+        Args: { _client_user_id: string }
+        Returns: string
+      }
       get_salon_by_client_link: {
         Args: { _link: string }
         Returns: {
