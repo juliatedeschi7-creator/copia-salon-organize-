@@ -39,7 +39,7 @@ const ClientInvitePage = () => {
 
     if (error) {
       console.error("accept_client_invite error:", error);
-      toast.error("Não foi possível vincular sua conta ao salão. Tente novamente.");
+      toast.error(`Falha ao vincular: ${error.code ?? ""} ${error.message}`);
       return false;
     }
 
