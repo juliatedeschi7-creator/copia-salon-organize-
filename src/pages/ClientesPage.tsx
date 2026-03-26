@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSalon } from "@/contexts/SalonContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, Phone, Link as LinkIcon, Loader2 } from "lucide-react";
+import { Users, Phone, Link as LinkIcon, Loader2, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 interface ClientProfile {
@@ -19,25 +19,35 @@ const ClientesPage = () => {
   const [loading, setLoading] = useState(true);
 
   const fetchClients = async () => {
-    if (!salon) return;
+    // Important: if there's no salon yet, stop the spinner (avoid infinite loading)
+    if (!salon) {
+      setClients([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
 
     const { data, error } = await supabase
-      // IMPORTANT: clients created via invite live in salon_clients (not salon_members)
+      // clients created via invite live in salon_clients (not salon_members)
       .from("salon_clients")
-      .select("user_id, profiles(name, phone, email, status)")
+      // Prefer full_name, but keep name as fallback
+      .select("user_id, profiles(full_name, name, phone, email, status)")
       .eq("salon_id", salon.id)
       // Only show approved clients in this page
-      .eq("profiles.status", "approved");
+      .eq("profiles.status", "approved")
+      .order("user_id", { ascending: true });
 
     if (error) {
       toast.error("Erro ao carregar clientes: " + error.message);
+      setClients([]);
       setLoading(false);
       return;
     }
 
     const mapped: ClientProfile[] = (data ?? []).map((row: any) => ({
       user_id: row.user_id,
-      name: row.profiles?.name ?? null,
+      name: row.profiles?.full_name ?? row.profiles?.name ?? null,
       phone: row.profiles?.phone ?? null,
       email: row.profiles?.email ?? null,
     }));
@@ -48,7 +58,8 @@ const ClientesPage = () => {
 
   useEffect(() => {
     fetchClients();
-  }, [salon]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salon?.id]);
 
   const handleCopyInviteLink = () => {
     if (!salon?.client_link) {
@@ -110,16 +121,27 @@ const ClientesPage = () => {
                   key={c.user_id}
                   className="flex items-center justify-between rounded-lg border border-border p-3"
                 >
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{c.name || c.email || c.user_id}</p>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="min-w-0">
+                    {/* Line 1: full name (avoid showing email twice) */}
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {c.name || "Cliente sem nome"}
+                    </p>
+
+                    {/* Line 2/3: email + phone (if present) */}
+                    <div className="mt-1 flex flex-col gap-1 text-xs text-muted-foreground">
+                      {c.email && (
+                        <span className="flex items-center gap-1 truncate">
+                          <Mail className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{c.email}</span>
+                        </span>
+                      )}
+
                       {c.phone && (
                         <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
+                          <Phone className="h-3 w-3 shrink-0" />
                           {c.phone}
                         </span>
                       )}
-                      {c.email && !c.phone && <span>{c.email}</span>}
                     </div>
                   </div>
                 </div>
