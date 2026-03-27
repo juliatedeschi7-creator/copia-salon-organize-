@@ -25,13 +25,13 @@ interface ClientProfile {
   phone?: string | null;
   email?: string | null;
   status: ClientStatus;
-  birth_date?: string | null; // ISO date string from PostgREST
+  birth_date?: string | null; // "YYYY-MM-DD"
 }
 
 const formatBirthDateBR = (iso?: string | null) => {
   if (!iso) return null;
-  // iso comes like "YYYY-MM-DD"
-  const [y, m, d] = iso.slice(0, 10).split("-");
+  const s = iso.slice(0, 10);
+  const [y, m, d] = s.split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}/${y}`;
 };
@@ -43,6 +43,7 @@ const ClientesPage = () => {
   const [actingUserId, setActingUserId] = useState<string | null>(null);
 
   const fetchClients = async () => {
+    // Important: if there's no salon yet, stop the spinner (avoid infinite loading)
     if (!salon) {
       setClients([]);
       setLoading(false);
@@ -53,6 +54,7 @@ const ClientesPage = () => {
 
     const { data, error } = await supabase
       .from("salon_clients")
+      // Prefer full_name, but keep name as fallback
       .select("user_id, profiles(full_name, name, phone, email, status, birth_date)")
       .eq("salon_id", salon.id)
       .order("user_id", { ascending: true });
@@ -226,7 +228,11 @@ const ClientesPage = () => {
                         disabled={actingUserId === c.user_id}
                         onClick={() => handleApprove(c.user_id)}
                       >
-                        <CheckCircle2 className="h-4 w-4" />
+                        {actingUserId === c.user_id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4" />
+                        )}
                         Aprovar
                       </Button>
                     }
@@ -247,7 +253,12 @@ const ClientesPage = () => {
             </CardHeader>
             <CardContent className="space-y-3">
               {groups.approved.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma cliente aprovada.</p>
+                <div className="py-8 text-center space-y-2">
+                  <p className="text-sm text-muted-foreground">Nenhuma cliente aprovada ainda.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Clique em <strong>Convidar cliente</strong> para copiar o link de cadastro e compartilhar com suas clientes.
+                  </p>
+                </div>
               ) : (
                 groups.approved.map((c) => (
                   <ClientRow
@@ -261,7 +272,11 @@ const ClientesPage = () => {
                         disabled={actingUserId === c.user_id}
                         onClick={() => handlePause(c.user_id)}
                       >
-                        <PauseCircle className="h-4 w-4" />
+                        {actingUserId === c.user_id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <PauseCircle className="h-4 w-4" />
+                        )}
                         Pausar
                       </Button>
                     }
@@ -295,7 +310,11 @@ const ClientesPage = () => {
                         disabled={actingUserId === c.user_id}
                         onClick={() => handleReactivate(c.user_id)}
                       >
-                        <PlayCircle className="h-4 w-4" />
+                        {actingUserId === c.user_id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <PlayCircle className="h-4 w-4" />
+                        )}
                         Reativar
                       </Button>
                     }
