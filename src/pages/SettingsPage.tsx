@@ -7,15 +7,23 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Save, Clock, Bell, Palette, Loader2, Plus, X, Send, Users, Link as LinkIcon, Trash2, Copy, Check } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Camera,
+  Save,
+  Clock,
+  Bell,
+  Palette,
+  Loader2,
+  Plus,
+  Send,
+  Users,
+  Link as LinkIcon,
+  Trash2,
+  Copy,
+  Check,
+} from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -46,10 +54,6 @@ const SettingsPage = () => {
   const [newInviteRole, setNewInviteRole] = useState<"dono" | "funcionario">("funcionario");
   const [creatingInvite, setCreatingInvite] = useState(false);
 
-  // Pending clients awaiting dono approval
-  const [pendingClients, setPendingClients] = useState<any[]>([]);
-  const [approvingClientId, setApprovingClientId] = useState<string | null>(null);
-
   useEffect(() => {
     if (salon) {
       setForm({ ...salon, reminder_hours: salon.reminder_hours ?? [24, 2] });
@@ -59,6 +63,7 @@ const SettingsPage = () => {
 
   useEffect(() => {
     if (!salon) return;
+
     supabase
       .from("salon_members")
       .select("user_id, role, profiles(full_name, email)")
@@ -73,18 +78,6 @@ const SettingsPage = () => {
       .eq("salon_id", salon.id)
       .in("role", ["dono", "funcionario"])
       .then(({ data }) => setTeamMembers(data || []));
-
-    // Load pending clients awaiting dono approval (via salon_clients + profiles)
-    supabase
-      .from("salon_clients")
-      .select("user_id, profiles(id, full_name, email, status)")
-      .eq("salon_id", salon.id)
-      .then(({ data }) => {
-        const pending = (data || []).filter(
-          (row: any) => row.profiles?.status === "pending"
-        );
-        setPendingClients(pending);
-      });
 
     // Load pending team invites
     supabase
@@ -110,15 +103,23 @@ const SettingsPage = () => {
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !salon) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error("Imagem muito grande. Máx 2MB."); return; }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Imagem muito grande. Máx 2MB.");
+      return;
+    }
 
     const ext = file.name.split(".").pop();
     const path = `${salon.id}/logo.${ext}`;
 
     const { error: upErr } = await supabase.storage.from("salon-logos").upload(path, file, { upsert: true });
-    if (upErr) { toast.error("Erro ao enviar logo: " + upErr.message); return; }
+    if (upErr) {
+      toast.error("Erro ao enviar logo: " + upErr.message);
+      return;
+    }
 
-    const { data: { publicUrl } } = supabase.storage.from("salon-logos").getPublicUrl(path);
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("salon-logos").getPublicUrl(path);
     setLogoPreview(publicUrl);
     setForm((f: any) => ({ ...f, logo_url: publicUrl }));
     toast.success("Logo enviada! Salve as configurações para confirmar.");
@@ -150,32 +151,15 @@ const SettingsPage = () => {
       setTeamInvites((prev) => [data, ...prev]);
       const url = `${window.location.origin}/convite-equipe/${data.token}`;
       if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(url).then(() =>
-          toast.success("Link de convite copiado!")
-        ).catch(() => toast.info("Link criado: " + url));
+        navigator.clipboard
+          .writeText(url)
+          .then(() => toast.success("Link de convite copiado!"))
+          .catch(() => toast.info("Link criado: " + url));
       } else {
         toast.info("Link criado: " + url);
       }
     }
     setCreatingInvite(false);
-  };
-
-  const handleApproveClient = async (clientUserId: string) => {
-    setApprovingClientId(clientUserId);
-    const { data, error } = await supabase.rpc("approve_client", {
-      _client_user_id: clientUserId,
-    });
-    setApprovingClientId(null);
-    if (error) {
-      toast.error("Erro ao aprovar cliente: " + error.message);
-    } else if (data === "forbidden") {
-      toast.error("Sem permissão para aprovar este cliente.");
-    } else if (data === "not_found") {
-      toast.error("Cliente não encontrado.");
-    } else {
-      toast.success("Cliente aprovado com sucesso!");
-      setPendingClients((prev) => prev.filter((c) => c.user_id !== clientUserId));
-    }
   };
 
   const handleDeleteTeamInvite = async (id: string) => {
@@ -187,7 +171,9 @@ const SettingsPage = () => {
   const handleCopyInviteToken = (token: string) => {
     const url = `${window.location.origin}/convite-equipe/${token}`;
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(() => toast.success("Link copiado!"))
+      navigator.clipboard
+        .writeText(url)
+        .then(() => toast.success("Link copiado!"))
         .catch(() => toast.info("Link: " + url));
     } else {
       toast.info("Link: " + url);
@@ -201,13 +187,16 @@ const SettingsPage = () => {
     }
     const url = `${window.location.origin}/convite/${form.client_link}`;
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(() => {
-        setCopiedLink(true);
-        toast.success("Link de convite de cliente copiado!");
-        setTimeout(() => setCopiedLink(false), 2000);
-      }).catch(() => {
-        toast.info("Link: " + url);
-      });
+      navigator.clipboard
+        .writeText(url)
+        .then(() => {
+          setCopiedLink(true);
+          toast.success("Link de convite de cliente copiado!");
+          setTimeout(() => setCopiedLink(false), 2000);
+        })
+        .catch(() => {
+          toast.info("Link: " + url);
+        });
     } else {
       toast.info("Link: " + url);
     }
@@ -236,9 +225,8 @@ const SettingsPage = () => {
     }
     setSendingNotif(true);
     try {
-      const targets = notifForm.target === "all"
-        ? salonMembers.map((m) => m.user_id)
-        : [notifForm.target];
+      const targets =
+        notifForm.target === "all" ? salonMembers.map((m) => m.user_id) : [notifForm.target];
 
       const inserts = targets.map((uid) => ({
         user_id: uid,
@@ -322,11 +310,7 @@ const SettingsPage = () => {
               </div>
               <div className="col-span-full space-y-2">
                 <Label>Descrição</Label>
-                <Textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  rows={3}
-                />
+                <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} />
               </div>
             </CardContent>
           </Card>
@@ -343,22 +327,9 @@ const SettingsPage = () => {
             <CardContent className="space-y-3">
               {form.client_link ? (
                 <div className="flex items-center gap-2">
-                  <Input
-                    readOnly
-                    value={`${window.location.origin}/convite/${form.client_link}`}
-                    className="text-xs"
-                  />
-                  <Button
-                    onClick={handleCopyClientLink}
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0"
-                  >
-                    {copiedLink ? (
-                      <Check className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
+                  <Input readOnly value={`${window.location.origin}/convite/${form.client_link}`} className="text-xs" />
+                  <Button onClick={handleCopyClientLink} variant="outline" size="icon" className="shrink-0">
+                    {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
               ) : (
@@ -487,23 +458,28 @@ const SettingsPage = () => {
                 {REMINDER_OPTIONS.map((opt) => (
                   <div
                     key={opt.value}
-                    className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition hover:border-primary ${reminderHours.includes(opt.value) ? "border-primary bg-primary/5" : "border-border"}`}
+                    className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition hover:border-primary ${
+                      reminderHours.includes(opt.value) ? "border-primary bg-primary/5" : "border-border"
+                    }`}
                     onClick={() => toggleReminder(opt.value)}
                   >
-                    <Checkbox
-                      checked={reminderHours.includes(opt.value)}
-                      onCheckedChange={() => toggleReminder(opt.value)}
-                    />
+                    <Checkbox checked={reminderHours.includes(opt.value)} onCheckedChange={() => toggleReminder(opt.value)} />
                     <span className="text-sm font-medium">{opt.label}</span>
                   </div>
                 ))}
               </div>
+
               {reminderHours.length === 0 && (
                 <p className="text-xs text-muted-foreground">Nenhum lembrete ativo. Selecione pelo menos um.</p>
               )}
+
               {reminderHours.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Lembretes ativos: {reminderHours.sort((a, b) => b - a).map((h) => `${h}h antes`).join(", ")}
+                  Lembretes ativos:{" "}
+                  {reminderHours
+                    .sort((a, b) => b - a)
+                    .map((h) => `${h}h antes`)
+                    .join(", ")}
                 </p>
               )}
             </CardContent>
@@ -511,45 +487,6 @@ const SettingsPage = () => {
         </TabsContent>
 
         <TabsContent value="equipe" className="space-y-4">
-          {/* Pending clients awaiting dono approval */}
-          {pendingClients.length > 0 && (
-            <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg text-amber-800 dark:text-amber-200">
-                  <Users className="h-5 w-5" />
-                  Clientes Pendentes
-                  <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
-                    {pendingClients.length}
-                  </span>
-                </CardTitle>
-                <CardDescription>Clientes que se cadastraram pelo link do salão e aguardam aprovação</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {pendingClients.map((c: any) => (
-                    <div key={c.user_id} className="flex items-center justify-between rounded-lg border border-amber-200 bg-white p-3 dark:border-amber-800 dark:bg-background">
-                      <div>
-                        <p className="text-sm font-medium">{c.profiles?.full_name || c.profiles?.email || c.user_id}</p>
-                        <p className="text-xs text-muted-foreground">{c.profiles?.email}</p>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => handleApproveClient(c.user_id)}
-                        disabled={approvingClientId === c.user_id}
-                        className="gap-1"
-                      >
-                        {approvingClientId === c.user_id && (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        )}
-                        Aprovar
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -588,10 +525,7 @@ const SettingsPage = () => {
               <div className="flex items-end gap-3">
                 <div className="space-y-2 flex-1">
                   <Label>Cargo</Label>
-                  <Select
-                    value={newInviteRole}
-                    onValueChange={(v) => setNewInviteRole(v as "dono" | "funcionario")}
-                  >
+                  <Select value={newInviteRole} onValueChange={(v) => setNewInviteRole(v as "dono" | "funcionario")}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -601,11 +535,7 @@ const SettingsPage = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button
-                  className="gap-2 shrink-0"
-                  onClick={handleCreateTeamInvite}
-                  disabled={creatingInvite}
-                >
+                <Button className="gap-2 shrink-0" onClick={handleCreateTeamInvite} disabled={creatingInvite}>
                   {creatingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
                   Gerar link
                 </Button>
@@ -621,12 +551,7 @@ const SettingsPage = () => {
                         <p className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">{inv.token}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1"
-                          onClick={() => handleCopyInviteToken(inv.token)}
-                        >
+                        <Button size="sm" variant="outline" className="gap-1" onClick={() => handleCopyInviteToken(inv.token)}>
                           <LinkIcon className="h-3 w-3" /> Copiar
                         </Button>
                         <Button
@@ -673,12 +598,7 @@ const SettingsPage = () => {
               </div>
               <div className="space-y-2">
                 <Label>Título</Label>
-                <Input
-                  placeholder="Ex: Promoção de aniversário 🎉"
-                  value={notifForm.title}
-                  onChange={(e) => setNotifForm({ ...notifForm, title: e.target.value })}
-                  maxLength={80}
-                />
+                <Input placeholder="Ex: Promoção de aniversário 🎉" value={notifForm.title} onChange={(e) => setNotifForm({ ...notifForm, title: e.target.value })} maxLength={80} />
               </div>
               <div className="space-y-2">
                 <Label>Mensagem</Label>
@@ -696,17 +616,11 @@ const SettingsPage = () => {
                 <p className="text-sm font-semibold">{notifForm.title || "Título da notificação"}</p>
                 <p className="text-xs text-muted-foreground">{notifForm.message || "Mensagem aparecerá aqui..."}</p>
               </div>
-              <Button
-                className="w-full gap-2"
-                onClick={handleSendNotification}
-                disabled={sendingNotif || !notifForm.title || !notifForm.message || salonMembers.length === 0}
-              >
+              <Button className="w-full gap-2" onClick={handleSendNotification} disabled={sendingNotif || !notifForm.title || !notifForm.message || salonMembers.length === 0}>
                 {sendingNotif ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {sendingNotif ? "Enviando..." : `Enviar para ${notifForm.target === "all" ? `todas (${salonMembers.length})` : "1 cliente"}`}
               </Button>
-              {salonMembers.length === 0 && (
-                <p className="text-xs text-center text-muted-foreground">Nenhuma cliente cadastrada ainda.</p>
-              )}
+              {salonMembers.length === 0 && <p className="text-xs text-center text-muted-foreground">Nenhuma cliente cadastrada ainda.</p>}
             </CardContent>
           </Card>
         </TabsContent>
