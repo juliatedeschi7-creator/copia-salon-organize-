@@ -21,6 +21,8 @@ interface Service { id: string; name: string; duration_minutes: number; price: n
 interface AvailableSlot { id: string; service_id: string; day_of_week: number; start_time: string; end_time: string; }
 interface AppointmentRow { id: string; appointment_date: string; start_time: string; end_time: string; status: string; service_id: string; whatsapp_code: string; }
 interface NotificationRow { id: string; title: string; message: string; is_read: boolean; created_at: string; type: string; }
+interface BlockedDate { blocked_date: string; }
+interface OccupiedSlot { appointment_date: string; start_time: string; service_id: string; }
 
 const statusMap: Record<string, { label: string; className: string }> = {
   pendente: { label: "Pendente", className: "bg-yellow-500/15 text-yellow-700 border-yellow-500/30" },
@@ -39,6 +41,8 @@ const ClientAreaPage = () => {
   const [slots, setSlots] = useState<AvailableSlot[]>([]);
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+  const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
+  const [salonOccupied, setSalonOccupied] = useState<OccupiedSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [bookOpen, setBookOpen] = useState(false);
   const [anamnesisOpen, setAnamnesisOpen] = useState(false);
@@ -56,16 +60,25 @@ const ClientAreaPage = () => {
 
   const fetchData = async () => {
     if (!salon || !user) return;
-    const [sRes, slRes, aRes, nRes] = await Promise.all([
+    const [sRes, slRes, aRes, nRes, bdRes, occRes] = await Promise.all([
       supabase.from("services").select("id, name, duration_minutes, price").eq("salon_id", salon.id).eq("is_active", true),
       supabase.from("available_slots").select("*").eq("salon_id", salon.id).eq("is_active", true),
       supabase.from("appointments").select("*").eq("client_user_id", user.id).order("appointment_date", { ascending: false }),
       supabase.from("notifications").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("blocked_dates").select("blocked_date").eq("salon_id", salon.id),
+      // Fetch minimal salon appointments to check slot occupancy (no client details exposed)
+      supabase
+        .from("appointments")
+        .select("appointment_date, start_time, service_id")
+        .eq("salon_id", salon.id)
+        .in("status", ["pendente", "aprovado"]),
     ]);
     setServices((sRes.data || []) as Service[]);
     setSlots((slRes.data || []) as AvailableSlot[]);
     setAppointments((aRes.data || []) as AppointmentRow[]);
     setNotifications((nRes.data || []) as NotificationRow[]);
+    setBlockedDates((bdRes.data || []) as BlockedDate[]);
+    setSalonOccupied((occRes.data || []) as OccupiedSlot[]);
     setLoading(false);
   };
 
@@ -86,11 +99,28 @@ const ClientAreaPage = () => {
   }, [user]);
 
   // Available time slots for selected service + date
+  const isDateBlocked = (date: string) => blockedDates.some((b) => b.blocked_date === date);
+
   const availableTimesForDate = () => {
     if (!selectedService || !selectedDate) return [];
+
+    // Check if date is blocked by salon owner
+    if (isDateBlocked(selectedDate)) return [];
+
     const date = new Date(selectedDate + "T00:00:00");
     const dayOfWeek = date.getDay();
-    return slots.filter((sl) => sl.service_id === selectedService && sl.day_of_week === dayOfWeek);
+
+    // Active slots for this service and day
+    const daySlots = slots.filter((sl) => sl.service_id === selectedService && sl.day_of_week === dayOfWeek);
+
+    // Occupied start times on that date for this service (pendente or aprovado occupy the slot)
+    const occupiedTimes = new Set(
+      salonOccupied
+        .filter((a) => a.appointment_date === selectedDate && a.service_id === selectedService)
+        .map((a) => a.start_time)
+    );
+
+    return daySlots.filter((sl) => !occupiedTimes.has(sl.start_time));
   };
 
   const handleBook = async () => {
@@ -213,7 +243,9 @@ const ClientAreaPage = () => {
               {selectedService && selectedDate && (
                 <div className="space-y-2">
                   <Label>Horário disponível</Label>
-                  {availableTimesForDate().length === 0 ? (
+                  {isDateBlocked(selectedDate) ? (
+                    <p className="text-sm text-destructive">Este dia está indisponível para agendamentos.</p>
+                  ) : availableTimesForDate().length === 0 ? (
                     <p className="text-sm text-muted-foreground">Nenhum horário disponível neste dia para este serviço</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
