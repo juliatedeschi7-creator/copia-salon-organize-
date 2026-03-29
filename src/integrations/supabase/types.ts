@@ -251,6 +251,41 @@ export type Database = {
           },
         ]
       }
+      blocked_dates: {
+        Row: {
+          blocked_date: string
+          created_at: string
+          created_by: string | null
+          id: string
+          reason: string | null
+          salon_id: string
+        }
+        Insert: {
+          blocked_date: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          reason?: string | null
+          salon_id: string
+        }
+        Update: {
+          blocked_date?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          reason?: string | null
+          salon_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blocked_dates_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: false
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_package_items: {
         Row: {
           client_package_id: string

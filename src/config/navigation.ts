@@ -31,10 +31,16 @@ export const navItems: NavItem[] = [
     roles: ["admin", "dono"],
   },
   {
+    label: "Agenda",
+    path: "/agenda",
+    icon: Calendar,
+    roles: ["dono", "funcionario"],
+  },
+  {
     label: "Minha Agenda",
     path: "/minha-agenda",
     icon: Calendar,
-    roles: ["cliente", "funcionario"],
+    roles: ["cliente"],
   },
   {
     label: "Conheça os Serviços",
