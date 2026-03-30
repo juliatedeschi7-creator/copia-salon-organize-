@@ -573,6 +573,7 @@ export type Database = {
         Row: {
           approved_at: string | null
           avatar_url: string | null
+          birth_date: string | null
           created_at: string
           deleted_at: string | null
           email: string
@@ -586,6 +587,7 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           avatar_url?: string | null
+          birth_date?: string | null
           created_at?: string
           deleted_at?: string | null
           email?: string
@@ -599,6 +601,7 @@ export type Database = {
         Update: {
           approved_at?: string | null
           avatar_url?: string | null
+          birth_date?: string | null
           created_at?: string
           deleted_at?: string | null
           email?: string

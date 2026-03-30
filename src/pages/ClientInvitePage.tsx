@@ -26,6 +26,7 @@ const ClientInvitePage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [birthDate, setBirthDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   /** Call accept_client_invite RPC to link user to salon as pending cliente */
@@ -133,6 +134,13 @@ const ClientInvitePage = () => {
         navigate("/");
       }
     } else {
+      // SIGN UP – validate required birth date before proceeding
+      if (!birthDate) {
+        toast.error("Informe sua data de nascimento.");
+        setSubmitting(false);
+        return;
+      }
+
       // SIGN UP
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -166,6 +174,16 @@ const ClientInvitePage = () => {
               "Conta criada, mas não foi possível finalizar o login. Faça login novamente para concluir o vínculo com o salão."
             );
           } else {
+            // Save birth_date to profile
+            const { error: profileErr } = await supabase
+              .from("profiles")
+              .update({ birth_date: birthDate })
+              .eq("id", userData.user.id);
+
+            if (profileErr) {
+              console.error("profile birth_date update error:", profileErr);
+            }
+
             await linkClientToSalon(userData.user.id);
           }
         }
@@ -239,10 +257,23 @@ const ClientInvitePage = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
-              <div className="space-y-2">
-                <Label>Nome completo</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" required />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label>Nome completo</Label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" required />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Data de nascimento</Label>
+                  <Input
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    required
+                    max={new Date().toISOString().slice(0, 10)}
+                  />
+                </div>
+              </>
             )}
 
             <div className="space-y-2">
