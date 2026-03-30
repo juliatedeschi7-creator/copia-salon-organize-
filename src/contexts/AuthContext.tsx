@@ -28,9 +28,7 @@ interface AuthContextType {
   isApproved: boolean;
   isLoading: boolean;
   profileLoaded: boolean;
-  /** true when profile could not be loaded due to a session/network error (not a "not approved" situation) */
   profileError: boolean;
-  /** Short diagnostic string (no PII/tokens) set when profileError is true, for in-app display. */
   profileDiagnostic: string | null;
   signOut: () => Promise<void>;
 }
@@ -51,20 +49,23 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-/** Wraps a promise with a hard deadline; rejects after `ms` ms if not settled. */
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const id = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
     promise.then(
-      (v) => { clearTimeout(id); resolve(v); },
-      (e) => { clearTimeout(id); reject(e); }
+      (v) => {
+        clearTimeout(id);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(id);
+        reject(e);
+      }
     );
   });
 
-/** Returns the current wall-clock time as HH:MM:SS for diagnostic labels. */
 const nowHMS = () => new Date().toTimeString().slice(0, 8);
 
-/** Formats a caught error into a short diagnostic string for a named operation. */
 const diagErrorStr = (operation: string, error: unknown): string => {
   const e = error as Error | null | undefined;
   const isTimeout = e?.message?.includes("Timeout");
@@ -80,21 +81,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [profileError, setProfileError] = useState(false);
   const [profileDiagnostic, setProfileDiagnostic] = useState<string | null>(null);
+
   const mountedRef = useRef(true);
   const prevUserIdRef = useRef<string | null>(null);
-  // Limit session-refresh retries to 1 per authenticated user to avoid loops
   const retryDoneRef = useRef(false);
-  // Track whether the loading cycle completed to allow the safety-timer to
-  // detect a stuck state and prevent double-processing with getSession().
   const loadingCompleteRef = useRef(false);
 
-  // Fetch user profile from public.profiles
+  const hardResetToLogin = () => {
+    if (typeof window === "undefined") return;
+
+    // Clear any storage we can access (Safari can be weird, so wrap in try/catch)
+    try {
+      [localStorage, sessionStorage].forEach((store) => {
+        // Remove only sb- keys to avoid nuking unrelated app data
+        Object.keys(store)
+          .filter((k) => k.startsWith("sb-"))
+          .forEach((k) => store.removeItem(k));
+      });
+    } catch {
+      // ignore
+    }
+
+    // Force full reload so the app reinitializes cleanly
+    window.location.assign("/");
+  };
+
+  // Fetch user profile
   const fetchProfile = async (userId: string, diag?: string[]): Promise<Profile | null> => {
     console.log("🔵 Fetching profile for userId:", userId);
-    
+
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role, status, approved_at, is_approved, user_id, phone, deleted_at, access_state, access_message, notice_until")
+      .select(
+        "id, full_name, email, role, status, approved_at, is_approved, user_id, phone, deleted_at, access_state, access_message, notice_until"
+      )
       .eq("id", userId)
       .single();
 
@@ -103,7 +123,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (diag) {
         const parts: string[] = ["fetchProfile"];
         if (error.message) parts.push(error.message.slice(0, 100));
-        if (error.code) parts.push(`code:${error.code}`);
+        if ((error as any).code) parts.push(`code:${(error as any).code}`);
         const status = (error as unknown as Record<string, unknown>).status;
         if (status) parts.push(`HTTP${status}`);
         diag.push(parts.join(" "));
@@ -111,32 +131,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return null;
     }
 
-    console.log("✅ Profile fetched:", {
-      id: data?.id,
-      email: data?.email,
-      status: data?.status,
-      approved_at: data?.approved_at,
-      is_approved: data?.is_approved,
-    });
-
     return data as Profile;
   };
 
-  // Fetch user roles from public.user_roles
+  // Fetch roles
   const fetchRoles = async (userId: string, diag?: string[]): Promise<AppRole[]> => {
     console.log("🔵 Fetching roles for userId:", userId);
-    
-    const { data, error } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId);
+
+    const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId);
 
     if (error) {
       console.error("❌ Error fetching roles:", error);
       if (diag) {
         const parts: string[] = ["fetchRoles"];
         if (error.message) parts.push(error.message.slice(0, 100));
-        if (error.code) parts.push(`code:${error.code}`);
+        if ((error as any).code) parts.push(`code:${(error as any).code}`);
         const status = (error as unknown as Record<string, unknown>).status;
         if (status) parts.push(`HTTP${status}`);
         diag.push(parts.join(" "));
@@ -144,50 +153,70 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return [];
     }
 
-    const rolesArray = (data?.map((r) => r.role) as AppRole[]) || [];
-    console.log("✅ Roles fetched:", rolesArray);
-    
-    return rolesArray;
+    return ((data?.map((r) => r.role) as AppRole[]) || []) as AppRole[];
   };
 
-  // Set up auth state listener — single source of truth via onAuthStateChange
+  const signOut = async () => {
+    // Prefer local sign-out here; "global" can be heavy and isn't needed to fix Safari refresh loops.
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // ignore
+    }
+
+    // Clear in-memory state
+    setUser(null);
+    setProfile(null);
+    setRoles([]);
+    setProfileLoaded(false);
+    setProfileError(false);
+    setProfileDiagnostic(null);
+    prevUserIdRef.current = null;
+    retryDoneRef.current = false;
+
+    hardResetToLogin();
+  };
+
   useEffect(() => {
     mountedRef.current = true;
     loadingCompleteRef.current = false;
 
-    // Safety timer: if the normal auth flow does not complete within 10 s
-    // (e.g. fetchProfile/fetchRoles hang), force-unblock the UI so the user
-    // is never stuck on an infinite spinner.
     const safetyTimer = setTimeout(() => {
       if (!mountedRef.current || loadingCompleteRef.current) return;
       console.warn("⚠️ Auth safety timeout: forcing state to unblock UI");
+
       loadingCompleteRef.current = true;
       setIsLoading(false);
       setProfileLoaded(true);
       setProfileError(true);
       setProfileDiagnostic(`safety-timeout:10s ts:${nowHMS()}`);
+
+      // Critical Safari fix: if we're stuck, assume session is bad and reset to login
+      // (prevents user being stuck forever and avoids needing to clear browser data)
+      signOut();
     }, 10_000);
 
-    // Fallback: call getSession() on mount so that if INITIAL_SESSION does not
-    // fire (edge case in some browsers/environments) and there is no active
-    // session, loading is unblocked immediately instead of waiting for the timer.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mountedRef.current || loadingCompleteRef.current) return;
-      if (!session) {
-        loadingCompleteRef.current = true;
-        setIsLoading(false);
-        setProfileLoaded(true);
-      }
-    }).catch(() => {
-      if (mountedRef.current && !loadingCompleteRef.current) {
-        loadingCompleteRef.current = true;
-        setIsLoading(false);
-        setProfileLoaded(true);
-      }
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (!mountedRef.current || loadingCompleteRef.current) return;
+        if (!session) {
+          loadingCompleteRef.current = true;
+          setIsLoading(false);
+          setProfileLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current && !loadingCompleteRef.current) {
+          loadingCompleteRef.current = true;
+          setIsLoading(false);
+          setProfileLoaded(true);
+        }
+      });
 
-    // onAuthStateChange is the primary source of truth for auth state.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("🔄 Auth state changed:", event);
 
       if (!mountedRef.current) return;
@@ -196,12 +225,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const userId = session.user.id;
         const isNewUser = userId !== prevUserIdRef.current;
 
-        console.log("🔐 User authenticated:", session.user.email);
         setUser(session.user);
 
-        // Only reset profileLoaded (show spinner) when a different user signs in.
-        // For token refreshes / updates of the same session, keep the existing
-        // profile visible and silently refresh it in the background.
         if (isNewUser) {
           prevUserIdRef.current = userId;
           loadingCompleteRef.current = false;
@@ -214,33 +239,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const diagParts: string[] = [`ts:${nowHMS()}`];
 
         const [prof, userRoles] = await Promise.all([
-          withTimeout(fetchProfile(session.user.id, diagParts), 8_000).catch((e) => {
+          withTimeout(fetchProfile(userId, diagParts), 8_000).catch((e) => {
             diagParts.push(diagErrorStr("fetchProfile", e));
-            console.error("⏱️ fetchProfile timed out or failed:", e);
             return null;
           }),
-          withTimeout(fetchRoles(session.user.id, diagParts), 8_000).catch((e) => {
+          withTimeout(fetchRoles(userId, diagParts), 8_000).catch((e) => {
             diagParts.push(diagErrorStr("fetchRoles", e));
-            console.error("⏱️ fetchRoles timed out or failed:", e);
             return [] as AppRole[];
           }),
         ]);
 
         if (!mountedRef.current) return;
 
-        // If profile fetch failed and we haven't retried yet, attempt a session
-        // refresh (fixes Safari / ITP where the stored token is stale) and retry.
         if (prof === null && !retryDoneRef.current) {
           retryDoneRef.current = true;
-          console.warn("⚠️ Profile fetch returned null — attempting session refresh and retry...");
 
           const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-
           if (!mountedRef.current) return;
 
-          if (refreshError) {
-            diagParts.push(`refreshSession:${refreshError.message?.slice(0, 80) || "error"}`);
-          }
+          if (refreshError) diagParts.push(`refreshSession:${refreshError.message?.slice(0, 80) || "error"}`);
 
           if (!refreshError && refreshData.session?.user) {
             const [prof2, userRoles2] = await Promise.all([
@@ -257,7 +274,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (!mountedRef.current) return;
 
             if (prof2 !== null) {
-              // Retry succeeded
               loadingCompleteRef.current = true;
               setProfile(prof2);
               setRoles(userRoles2);
@@ -268,24 +284,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
           }
 
-          // Both attempts failed — mark as session error so the UI can show an
-          // appropriate message instead of the "Aguardando aprovação" screen.
-          console.error("❌ Profile could not be loaded after session refresh — marking profileError.");
+          // Both attempts failed: treat as broken session and reset
           loadingCompleteRef.current = true;
           setProfile(null);
           setRoles([]);
           setProfileError(true);
           setProfileDiagnostic(diagParts.join(" | "));
           setProfileLoaded(true);
-        } else {
-          loadingCompleteRef.current = true;
-          setProfile(prof);
-          setRoles(userRoles);
-          setProfileError(false);
-          setProfileLoaded(true);
+          setIsLoading(false);
+
+          // Safari fix: reset to login so user can re-auth without clearing browser data
+          await signOut();
+          return;
         }
+
+        loadingCompleteRef.current = true;
+        setProfile(prof);
+        setRoles(userRoles);
+        setProfileError(false);
+        setProfileLoaded(true);
+        setIsLoading(false);
       } else {
-        console.log("🔴 User logged out");
         loadingCompleteRef.current = true;
         setUser(null);
         setProfile(null);
@@ -295,10 +314,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setProfileDiagnostic(null);
         prevUserIdRef.current = null;
         retryDoneRef.current = false;
+        setIsLoading(false);
       }
-
-      // Mark initial auth check as complete after first event is handled
-      setIsLoading(false);
     });
 
     return () => {
@@ -306,65 +323,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       clearTimeout(safetyTimer);
       subscription?.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Compute approval status - ✅ Check all possible approval fields
-  const isApproved = 
-    profile?.status === "approved" || 
-    !!profile?.approved_at || 
-    profile?.is_approved === true;
+  const isApproved = profile?.status === "approved" || !!profile?.approved_at || profile?.is_approved === true;
 
-  console.log("🟡 Approval status:", { isApproved, status: profile?.status, approved_at: profile?.approved_at, is_approved: profile?.is_approved });
-
-  // Primary role: admin > dono > funcionario > cliente
-  const role: AppRole = 
-    roles.includes("admin") 
-      ? "admin" 
-      : roles.includes("dono") 
-      ? "dono" 
-      : roles.includes("funcionario") 
-      ? "funcionario" 
-      : roles.includes("cliente") 
-      ? "cliente" 
-      : profile?.role ?? "cliente";
-
-  console.log("🟠 Current role:", role, "roles array:", roles);
-
-  const signOut = async () => {
-    // Sign out from all sessions (global scope) so every device is invalidated.
-    try {
-      await supabase.auth.signOut({ scope: "global" });
-    } catch {
-      // Ignore errors — we still proceed with local cleanup below.
-    }
-
-    // Clear in-memory state.
-    setUser(null);
-    setProfile(null);
-    setRoles([]);
-
-    // Clear Supabase auth storage keys (always prefixed with "sb-") so stale
-    // tokens cannot silently re-authenticate after the redirect.
-    if (typeof window !== "undefined") {
-      try {
-        [localStorage, sessionStorage].forEach((store) => {
-          Object.keys(store)
-            .filter((k) => k.startsWith("sb-"))
-            .forEach((k) => store.removeItem(k));
-        });
-      } catch {
-        // Storage access may be blocked in some browsers (e.g. Safari ITP).
-      }
-
-      // Hard navigation forces a full app reinitialisation so the user is never
-      // left stuck on an in-memory error route (critical on mobile / Safari).
-      window.location.assign("/");
-    }
-  };
+  const role: AppRole = roles.includes("admin")
+    ? "admin"
+    : roles.includes("dono")
+    ? "dono"
+    : roles.includes("funcionario")
+    ? "funcionario"
+    : roles.includes("cliente")
+    ? "cliente"
+    : profile?.role ?? "cliente";
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, role, roles, isAuthenticated: !!user, isApproved, isLoading, profileLoaded, profileError, profileDiagnostic, signOut }}
+      value={{
+        user,
+        profile,
+        role,
+        roles,
+        isAuthenticated: !!user,
+        isApproved,
+        isLoading,
+        profileLoaded,
+        profileError,
+        profileDiagnostic,
+        signOut,
+      }}
     >
       {children}
     </AuthContext.Provider>
