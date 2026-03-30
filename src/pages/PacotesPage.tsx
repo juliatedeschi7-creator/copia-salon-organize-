@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, PackageOpen, Loader2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
+import { fetchSalonClients, SalonClientOption } from "@/lib/salonClients";
 
 interface Service {
   id: string;
@@ -34,17 +35,13 @@ interface Package {
   package_items: { service_id: string; quantity: number; services: { name: string } }[];
 }
 
-interface SalonClient {
-  user_id: string;
-  profiles: { full_name: string; email: string } | null;
-}
 
 const PacotesPage = () => {
   const { salon } = useSalon();
 
   const [packages, setPackages] = useState<Package[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [clients, setClients] = useState<SalonClient[]>([]);
+  const [clients, setClients] = useState<SalonClientOption[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Package dialog
@@ -67,22 +64,18 @@ const PacotesPage = () => {
 
   const fetchData = async () => {
     if (!salon) return;
-    const [pkgRes, svcRes, clientRes] = await Promise.all([
+    const [pkgRes, svcRes, salonClientsList] = await Promise.all([
       supabase
         .from("packages")
         .select("id, name, description, price, validity_days, is_active, package_items(service_id, quantity, services(name))")
         .eq("salon_id", salon.id)
         .order("name"),
       supabase.from("services").select("id, name, is_active").eq("salon_id", salon.id).eq("is_active", true).order("name"),
-      supabase
-        .from("salon_members")
-        .select("user_id, profiles(full_name, email)")
-        .eq("salon_id", salon.id)
-        .eq("role", "cliente"),
+      fetchSalonClients(salon.id),
     ]);
     setPackages((pkgRes.data as Package[]) ?? []);
     setServices((svcRes.data as Service[]) ?? []);
-    setClients((clientRes.data as SalonClient[]) ?? []);
+    setClients(salonClientsList);
     setLoading(false);
   };
 
@@ -420,7 +413,7 @@ const PacotesPage = () => {
                   <SelectContent>
                     {clients.map((c) => (
                       <SelectItem key={c.user_id} value={c.user_id}>
-                        {c.profiles?.full_name ?? c.user_id}{c.profiles?.email ? ` — ${c.profiles.email}` : ""}
+                        {c.displayName}{c.email ? ` — ${c.email}` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
