@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { fetchSalonClients } from "@/lib/salonClients";
 
 interface Charge {
   id: string;
@@ -143,17 +144,12 @@ const ContasPage = () => {
       else setPayments((paymentsData ?? []) as Payment[]);
 
       // Fetch client list for the selector
-      const { data: membersData } = await supabase
-        .from("salon_members")
-        .select("user_id, profiles(full_name, email)")
-        .eq("salon_id", salon.id)
-        .eq("role", "cliente");
-
+      const salonClientsList = await fetchSalonClients(salon.id);
       setClients(
-        (membersData ?? []).map((m: any) => ({
-          user_id: m.user_id,
-          name: m.profiles?.full_name ?? null,
-          email: m.profiles?.email ?? null,
+        salonClientsList.map((c) => ({
+          user_id: c.user_id,
+          name: c.displayName !== "Cliente" ? c.displayName : null,
+          email: c.email,
         }))
       );
     } else {

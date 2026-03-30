@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { generateWhatsAppCode } from "@/lib/whatsapp";
+import { fetchSalonClients } from "@/lib/salonClients";
 
 interface AppointmentFormDialogProps {
   open: boolean;
@@ -60,24 +61,18 @@ const AppointmentFormDialog = ({ open, onOpenChange, onSuccess, appointment }: A
     setFetching(true);
 
     const fetchData = async () => {
-      const [servicesRes, membersRes] = await Promise.all([
+      const [servicesRes, salonClientsList] = await Promise.all([
         supabase.from("services").select("id, name, duration_minutes").eq("salon_id", salon.id).eq("is_active", true),
-        supabase.from("salon_members").select("user_id, role").eq("salon_id", salon.id).eq("role", "cliente"),
+        fetchSalonClients(salon.id),
       ]);
 
       setServices((servicesRes.data || []) as ServiceOption[]);
-
-      // Fetch profile names for client members
-      const clientUserIds = (membersRes.data || []).map((m: any) => m.user_id);
-      if (clientUserIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("user_id, name")
-          .in("user_id", clientUserIds);
-        setClients((profiles || []) as ClientOption[]);
-      } else {
-        setClients([]);
-      }
+      setClients(
+        salonClientsList.map((c) => ({
+          user_id: c.user_id,
+          name: c.displayName,
+        }))
+      );
 
       setFetching(false);
     };

@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { fetchSalonClients, SalonClientOption } from "@/lib/salonClients";
 
 const REMINDER_OPTIONS = [
   { value: 1, label: "1 hora antes" },
@@ -45,7 +46,7 @@ const SettingsPage = () => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [sendingNotif, setSendingNotif] = useState(false);
   const [notifForm, setNotifForm] = useState({ title: "", message: "", target: "all" });
-  const [salonMembers, setSalonMembers] = useState<any[]>([]);
+  const [salonMembers, setSalonMembers] = useState<SalonClientOption[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
 
   // Team invites state
@@ -64,12 +65,7 @@ const SettingsPage = () => {
   useEffect(() => {
     if (!salon) return;
 
-    supabase
-      .from("salon_members")
-      .select("user_id, role, profiles(full_name, email)")
-      .eq("salon_id", salon.id)
-      .eq("role", "cliente")
-      .then(({ data }) => setSalonMembers(data || []));
+    fetchSalonClients(salon.id).then(setSalonMembers);
 
     // Load team members (dono + funcionario)
     supabase
@@ -589,9 +585,9 @@ const SettingsPage = () => {
                   onChange={(e) => setNotifForm({ ...notifForm, target: e.target.value })}
                 >
                   <option value="all">Todas as clientes ({salonMembers.length})</option>
-                  {salonMembers.map((m: any) => (
+                  {salonMembers.map((m) => (
                     <option key={m.user_id} value={m.user_id}>
-                      {m.profiles?.full_name || m.profiles?.email || m.user_id}
+                      {m.displayName}
                     </option>
                   ))}
                 </select>
