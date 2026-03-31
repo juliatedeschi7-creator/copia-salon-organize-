@@ -40,7 +40,7 @@ const SalonContext = createContext<SalonContextType>({
 export const useSalon = () => useContext(SalonContext);
 
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
-  const { user, role, isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [salon, setSalon] = useState<Salon | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -51,17 +51,10 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    // Only dono/funcionario are tied to a salon via salon_members.
-    // For cliente/admin, stop spinner fast.
-    if (role !== "dono" && role !== "funcionario") {
-      setSalon(null);
-      setIsLoading(false);
-      return;
-    }
-
     setIsLoading(true);
 
     try {
+      // Always try membership; don't depend on role being loaded correctly.
       const { data: membership, error: membershipErr } = await supabase
         .from("salon_members")
         .select("salon_id")
@@ -99,7 +92,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, user?.id, role]);
+  }, [isAuthenticated, user?.id]);
 
   useEffect(() => {
     fetchSalon();
@@ -108,7 +101,11 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const createSalon = async (name: string) => {
     if (!user) return;
 
-    const { data, error } = await supabase.from("salons").insert({ name, owner_id: user.id }).select().single();
+    const { data, error } = await supabase
+      .from("salons")
+      .insert({ name, owner_id: user.id })
+      .select()
+      .single();
 
     if (error) {
       toast.error("Erro ao criar salão: " + error.message);
@@ -135,5 +132,9 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     toast.success("Configurações salvas!");
   };
 
-  return <SalonContext.Provider value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}>{children}</SalonContext.Provider>;
+  return (
+    <SalonContext.Provider value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}>
+      {children}
+    </SalonContext.Provider>
+  );
 };
