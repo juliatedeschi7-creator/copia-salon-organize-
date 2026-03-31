@@ -62,11 +62,16 @@ const ProtectedRoutes = () => {
     return <BlockedAccessPage />;
   }
 
-  // 🔥 6. AGORA SIM decide se tem salão
-  if (!salon && role !== "admin") {
-    return <CreateSalonPage />;
+
+  // 🔥 ESPERA TERMINAR DE CARREGAR O SALON
+if (!salon && isAuthenticated && role !== "admin") {
+  if (salonLoading) {
+    return <DebugLoadingScreen status="⏳ Finalizando carregamento do salão..." />;
   }
 
+  console.warn("🏢 User sem salão após carregamento completo");
+  return <CreateSalonPage />;
+}
   // 🔥 7. APP NORMAL
   return (
     <AppLayout>
