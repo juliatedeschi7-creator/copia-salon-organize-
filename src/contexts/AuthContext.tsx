@@ -28,9 +28,7 @@ interface AuthContextType {
   isApproved: boolean;
   isLoading: boolean;
   profileLoaded: boolean;
-  /** true when profile could not be loaded due to a session/network error (not a "not approved" situation) */
   profileError: boolean;
-  /** Short diagnostic string (no PII/tokens) set when profileError is true, for in-app display. */
   profileDiagnostic: string | null;
   signOut: () => Promise<void>;
 }
@@ -51,7 +49,6 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-/** Wraps a promise with a hard deadline; rejects after `ms` ms if not settled. */
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const id = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
@@ -67,10 +64,8 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
     );
   });
 
-/** Returns the current wall-clock time as HH:MM:SS for diagnostic labels. */
 const nowHMS = () => new Date().toTimeString().slice(0, 8);
 
-/** Formats a caught error into a short diagnostic string for a named operation. */
 const diagErrorStr = (operation: string, error: unknown): string => {
   const e = error as Error | null | undefined;
   const isTimeout = e?.message?.includes("Timeout");
@@ -89,10 +84,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const mountedRef = useRef(true);
   const prevUserIdRef = useRef<string | null>(null);
-  // Limit session-refresh retries to 1 per authenticated user to avoid loops
   const retryDoneRef = useRef(false);
-  // Track whether the loading cycle completed to allow the safety-timer to
-  // detect a stuck state and prevent double-processing with getSession().
   const loadingCompleteRef = useRef(false);
 
   const hardResetToLogin = () => {
@@ -113,7 +105,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signOut = async () => {
     try {
-      // local is enough to fix stuck sessions; global can be heavy/unnecessary
       await supabase.auth.signOut({ scope: "local" });
     } catch {
       // ignore
@@ -131,7 +122,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     hardResetToLogin();
   };
 
-  // Fetch user profile from public.profiles
   const fetchProfile = async (userId: string, diag?: string[]): Promise<Profile | null> => {
     const { data, error } = await supabase
       .from("profiles")
@@ -156,7 +146,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return data as Profile;
   };
 
-  // Fetch user roles from public.user_roles
   const fetchRoles = async (userId: string, diag?: string[]): Promise<AppRole[]> => {
     const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId);
 
@@ -175,22 +164,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return ((data?.map((r) => r.role) as AppRole[]) || []) as AppRole[];
   };
 
-  // Set up auth state listener — single source of truth via onAuthStateChange
   useEffect(() => {
     mountedRef.current = true;
     loadingCompleteRef.current = false;
 
-    // Safety timer: if auth flow doesn't complete, do last-chance session recovery.
-    // If still stuck, sign out + hard redirect to login (PWA/iOS friendly).
+    // SAFETY TIMER (PWA-safe):
+    // - Try to recover session once
+    // - If a session exists and still stuck -> signOut (forces relogin)
+    // - If no session -> just unblock UI (don't loop redirects)
     const safetyTimer = setTimeout(async () => {
       if (!mountedRef.current || loadingCompleteRef.current) return;
 
       console.warn("⚠️ Auth safety timeout: attempting last-chance session recovery");
 
+      let hasSession = false;
+
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
+
+        hasSession = !!session;
 
         if (session) {
           await supabase.auth.refreshSession();
@@ -201,19 +195,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (!mountedRef.current || loadingCompleteRef.current) return;
 
-      console.warn("⚠️ Still stuck after recovery — signing out to unblock UI.");
-
       loadingCompleteRef.current = true;
       setIsLoading(false);
       setProfileLoaded(true);
       setProfileError(true);
       setProfileDiagnostic(`safety-timeout:10s ts:${nowHMS()}`);
 
-      await signOut();
+      // Only force signOut if we *actually* had a session.
+      // Otherwise we'd risk redirect loops for logged-out users.
+      if (hasSession) {
+        await signOut();
+      }
     }, 10_000);
 
-    // Fallback: call getSession() on mount so that if INITIAL_SESSION does not
-    // fire and there is no active session, loading is unblocked immediately.
     supabase.auth
       .getSession()
       .then(({ data: { session } }) => {
@@ -234,7 +228,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mountedRef.current) return;
 
       if (session?.user) {
@@ -267,7 +261,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (!mountedRef.current) return;
 
-        // If profile fetch failed and we haven't retried yet, attempt a session refresh and retry.
         if (prof === null && !retryDoneRef.current) {
           retryDoneRef.current = true;
 
@@ -304,7 +297,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
           }
 
-          // Both attempts failed — treat as broken session and force relogin.
           loadingCompleteRef.current = true;
           setProfile(null);
           setRoles([]);
@@ -347,7 +339,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const isApproved = profile?.status === "approved" || !!profile?.approved_at || profile?.is_approved === true;
 
-  // Primary role: admin > dono > funcionario > cliente
   const role: AppRole = roles.includes("admin")
     ? "admin"
     : roles.includes("dono")
