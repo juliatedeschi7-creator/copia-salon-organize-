@@ -36,24 +36,15 @@ const SalonContext = createContext<SalonContextType>({
   updateSalon: async () => {},
   refetch: async () => {},
 });
-const createSalon = async (name: string) => {
-  if (!user?.id) return;
 
-  // 🔥 BLOQUEIO DE DUPLICIDADE
-  const { data: existingSalon } = await supabase
-    .from("salons")
-    .select("id")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+// Hook para usar o contexto
+export const useSalon = () => {
+  const context = useContext(SalonContext);
+  if (!context) throw new Error("useSalon deve ser usado dentro do SalonProvider");
+  return context;
+};
 
-  if (existingSalon) {
-    toast.error("Você já possui um salão!");
-    return;
-  }
-
-  // resto do código continua...
-export const useSalon = () => useContext(SalonContext);
-
+// Provider
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const { user, isAuthenticated } = useAuth();
   const [salon, setSalon] = useState<Salon | null>(null);
@@ -69,27 +60,17 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
 
     try {
-      console.log("📡 Fetching membership for:", user.id);
-
       const { data: membership, error: membershipErr } = await supabase
         .from("salon_members")
         .select("salon_id")
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (membershipErr) {
-        console.error("❌ Membership error:", membershipErr);
-        setSalon(null);
-        return;
-      }
-
+      if (membershipErr) throw membershipErr;
       if (!membership?.salon_id) {
-        console.warn("⚠️ No salon membership found");
         setSalon(null);
         return;
       }
-
-      console.log("✅ Membership OK:", membership.salon_id);
 
       const { data: salonData, error: salonErr } = await supabase
         .from("salons")
@@ -97,15 +78,11 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         .eq("id", membership.salon_id)
         .maybeSingle();
 
-      if (salonErr) {
-        console.error("❌ Salon fetch error:", salonErr);
-        setSalon(null);
-        return;
-      }
+      if (salonErr) throw salonErr;
 
       setSalon(salonData ?? null);
-    } catch (e) {
-      console.error("❌ Unexpected fetch error:", e);
+    } catch (e: any) {
+      console.error("❌ FetchSalon error:", e);
       setSalon(null);
     } finally {
       setIsLoading(false);
@@ -117,70 +94,52 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchSalon]);
 
   const createSalon = async (name: string) => {
-    // 🔥 CORREÇÃO CRÍTICA
     if (!user?.id) {
-      console.error("❌ User inválido:", user);
       toast.error("Aguarde um momento e tente novamente");
       return;
     }
 
     try {
-      console.log("🏢 Creating salon:", name, "User:", user.id);
+      // Bloqueio de duplicidade
+      const { data: existingSalon } = await supabase
+        .from("salons")
+        .select("id")
+        .eq("owner_id", user.id)
+        .maybeSingle();
 
-      // 🔥 VALIDAÇÃO EXTRA
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.user?.id) {
-        console.error("❌ Sessão inválida");
-        toast.error("Sessão expirada, faça login novamente");
+      if (existingSalon) {
+        toast.error("Você já possui um salão!");
         return;
       }
 
-      // 1. criar salão
+      // Criação do salão
       const { data: salonRow, error: salonErr } = await supabase
         .from("salons")
-        .insert({
-          name,
-          owner_id: session.user.id, // 🔥 GARANTE ID VÁLIDO
-        })
+        .insert({ name, owner_id: user.id })
         .select("*")
         .single();
 
       if (salonErr || !salonRow) {
-        console.error("❌ Salon creation failed:", salonErr);
         toast.error("Erro ao criar salão: " + salonErr?.message);
         return;
       }
 
-      console.log("✅ Salon created:", salonRow.id);
-
-      // 2. membership
+      // Criação do membership
       const { error: memberErr } = await supabase
         .from("salon_members")
-        .insert({
-          salon_id: salonRow.id,
-          user_id: session.user.id,
-          role: "dono",
-        });
+        .insert({ salon_id: salonRow.id, user_id: user.id, role: "dono" });
 
       if (memberErr) {
-        console.error("❌ Membership failed:", memberErr);
         toast.error("Erro ao vincular usuário");
         return;
       }
 
-      console.log("✅ Membership created");
-
       setSalon(salonRow as Salon);
-
       toast.success("Salão criado com sucesso!");
-
       await fetchSalon();
     } catch (e: any) {
-  console.error("❌ Unexpected create error COMPLETO:", e);
-  toast.error("Erro: " + (e?.message || JSON.stringify(e)));
+      console.error("❌ CreateSalon error:", e);
+      toast.error("Erro: " + (e?.message || JSON.stringify(e)));
     }
   };
 
@@ -193,7 +152,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       .eq("id", salon.id);
 
     if (error) {
-      console.error("❌ Update error:", error);
+      console.error("❌ UpdateSalon error:", error);
       toast.error("Erro ao atualizar");
       return;
     }
@@ -203,15 +162,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <SalonContext.Provider
-      value={{
-        salon,
-        isLoading,
-        createSalon,
-        updateSalon,
-        refetch: fetchSalon,
-      }}
-    >
+    <SalonContext.Provider value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}>
       {children}
     </SalonContext.Provider>
   );
