@@ -165,17 +165,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    console.log("🚀 AuthProvider mounting...");
     mountedRef.current = true;
     loadingCompleteRef.current = false;
 
-    // SAFETY TIMER (PWA-safe):
-    // - Try to recover session once
-    // - If a session exists and still stuck -> signOut (forces relogin)
-    // - If no session -> just unblock UI (don't loop redirects)
+    // AGGRESSIVE SAFETY TIMER: 5 seconds instead of 10
     const safetyTimer = setTimeout(async () => {
       if (!mountedRef.current || loadingCompleteRef.current) return;
 
-      console.warn("⚠️ Auth safety timeout: attempting last-chance session recovery");
+      console.warn("⚠️ Auth safety timeout (5s): forcing UI unblock");
 
       let hasSession = false;
 
@@ -187,6 +185,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         hasSession = !!session;
 
         if (session) {
+          console.log("🔄 Session found, attempting refresh");
           await supabase.auth.refreshSession();
         }
       } catch (e) {
@@ -198,32 +197,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       loadingCompleteRef.current = true;
       setIsLoading(false);
       setProfileLoaded(true);
-      setProfileError(true);
-      setProfileDiagnostic(`safety-timeout:10s ts:${nowHMS()}`);
+      setProfileError(!hasSession);
+      setProfileDiagnostic(`safety-timeout:5s ts:${nowHMS()}`);
 
-      // Only force signOut if we *actually* had a session.
-      // Otherwise we'd risk redirect loops for logged-out users.
       if (hasSession) {
         await signOut();
       }
-    }, 10_000);
+    }, 5_000); // ← CHANGED FROM 10_000 TO 5_000
 
-    supabase.auth
-      .getSession()
+    // TRY INITIAL SESSION WITH SHORT TIMEOUT
+    const initialSessionPromise = withTimeout(supabase.auth.getSession(), 3_000) // ← SHORT TIMEOUT
       .then(({ data: { session } }) => {
         if (!mountedRef.current || loadingCompleteRef.current) return;
+        
+        console.log("✅ Initial session check completed");
+        
         if (!session) {
+          console.log("❌ No session found, user is logged out");
           loadingCompleteRef.current = true;
           setIsLoading(false);
           setProfileLoaded(true);
         }
       })
-      .catch(() => {
-        if (mountedRef.current && !loadingCompleteRef.current) {
-          loadingCompleteRef.current = true;
-          setIsLoading(false);
-          setProfileLoaded(true);
-        }
+      .catch((error) => {
+        if (!mountedRef.current || loadingCompleteRef.current) return;
+        console.warn("⚠️ Initial session check failed or timed out:", error);
+        loadingCompleteRef.current = true;
+        setIsLoading(false);
+        setProfileLoaded(true);
       });
 
     // STORAGE SYNC: Listen for changes across browser tabs/windows
@@ -232,18 +233,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (e.key?.startsWith("sb-") && e.key?.endsWith("-auth-token")) {
         if (!e.newValue) {
-          // Token was removed in another tab
           console.warn("🔄 Auth token removed, signing out locally");
           setUser(null);
           setProfile(null);
           setRoles([]);
         } else {
-          // Token was updated in another tab, refresh session
+          console.log("🔄 Auth token updated, refreshing session");
           supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session?.user) {
+            if (session?.user && mountedRef.current) {
               console.log("🔄 Session recovered from another tab");
               setUser(session.user);
-              // Profile will be fetched by the main auth state handler
             }
           });
         }
@@ -252,10 +251,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     window.addEventListener("storage", handleStorageChange);
 
+    // MAIN AUTH STATE LISTENER
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mountedRef.current) return;
+
+      console.log("🔐 Auth state changed:", _event, !!session?.user);
 
       if (session?.user) {
         const userId = session.user.id;
@@ -264,6 +266,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(session.user);
 
         if (isNewUser) {
+          console.log("👤 New user detected:", userId);
           prevUserIdRef.current = userId;
           loadingCompleteRef.current = false;
           setProfileLoaded(false);
@@ -288,6 +291,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (!mountedRef.current) return;
 
         if (prof === null && !retryDoneRef.current) {
+          console.warn("⚠️ Profile fetch failed, attempting refresh");
           retryDoneRef.current = true;
 
           const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
@@ -313,6 +317,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (!mountedRef.current) return;
 
             if (prof2 !== null) {
+              console.log("✅ Profile recovered after refresh");
               loadingCompleteRef.current = true;
               setProfile(prof2);
               setRoles(userRoles2);
@@ -323,6 +328,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
           }
 
+          console.error("❌ Profile fetch failed permanently");
           loadingCompleteRef.current = true;
           setProfile(null);
           setRoles([]);
@@ -335,6 +341,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return;
         }
 
+        console.log("✅ Profile and roles loaded successfully");
         loadingCompleteRef.current = true;
         setProfile(prof);
         setRoles(userRoles);
@@ -342,6 +349,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setProfileLoaded(true);
         setIsLoading(false);
       } else {
+        console.log("🚪 User logged out");
         loadingCompleteRef.current = true;
         setUser(null);
         setProfile(null);
@@ -356,6 +364,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => {
+      console.log("🛑 AuthProvider cleanup");
       mountedRef.current = false;
       clearTimeout(safetyTimer);
       subscription?.unsubscribe();
