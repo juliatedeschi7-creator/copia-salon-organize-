@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -34,6 +34,40 @@ import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
+function BootStuckScreen({
+  onSignOut,
+  diagnostic,
+}: {
+  onSignOut: () => void;
+  diagnostic?: string | null;
+}) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+      <h1 className="text-lg font-semibold">Travado ao iniciar</h1>
+      <p className="text-sm text-muted-foreground">
+        O Safari pode estar bloqueando a sessão ou a conexão ficou pendurada. Tente sair e entrar novamente.
+      </p>
+
+      {diagnostic ? (
+        <pre className="mt-2 w-full max-w-md overflow-auto rounded border bg-card p-3 text-left text-xs">
+          {diagnostic}
+        </pre>
+      ) : null}
+
+      <button
+        className="mt-2 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        onClick={onSignOut}
+      >
+        Sair e entrar de novo
+      </button>
+
+      <p className="mt-2 text-xs text-muted-foreground">
+        Dica: no iPhone, evite “Guia Privada”. Se persistir, limpe os dados do site nas configurações do Safari.
+      </p>
+    </div>
+  );
+}
+
 const AppRoutes = () => {
   const {
     isAuthenticated,
@@ -49,56 +83,38 @@ const AppRoutes = () => {
 
   const { salon, isLoading: salonLoading } = useSalon();
 
-  // If Safari gets stuck (session exists but profile/salon never resolves),
-  // force logout to unblock UX (Option A).
-  const [bootStuck, setBootStuck] = useState(false);
-  const bootTimerRef = useRef<number | null>(null);
+  const waitingForBoot = useMemo(() => {
+    if (!isAuthenticated) return isLoading; // show spinner while checking session
+    // authenticated: wait for profile + salon (if needed)
+    return isLoading || salonLoading || !profileLoaded;
+  }, [isAuthenticated, isLoading, salonLoading, profileLoaded]);
+
+  const [bootSeconds, setBootSeconds] = useState(0);
 
   useEffect(() => {
-    // Reset timer whenever the "boot conditions" change
-    if (bootTimerRef.current) window.clearTimeout(bootTimerRef.current);
+    if (!waitingForBoot) {
+      setBootSeconds(0);
+      return;
+    }
 
-    setBootStuck(false);
+    setBootSeconds(0);
+    const id = window.setInterval(() => setBootSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [waitingForBoot]);
 
-    // Only arm timer if user is authenticated and we are waiting for profile/salon
-    const waiting = isAuthenticated && !profileError && (isLoading || salonLoading || !profileLoaded);
+  // If boot takes too long, stop spinner and show a stuck screen (no infinite loading).
+  if (waitingForBoot && bootSeconds >= 12) {
+    return <BootStuckScreen onSignOut={() => signOut()} diagnostic={profileDiagnostic} />;
+  }
 
-    if (!waiting) return;
-
-    bootTimerRef.current = window.setTimeout(() => {
-      setBootStuck(true);
-    }, 12_000);
-
-    return () => {
-      if (bootTimerRef.current) window.clearTimeout(bootTimerRef.current);
-    };
-  }, [isAuthenticated, profileError, isLoading, salonLoading, profileLoaded]);
-
-  useEffect(() => {
-    // If it is stuck, force signOut (Option A)
-    if (!bootStuck) return;
-    // Avoid loops when already logged out
-    if (!isAuthenticated) return;
-
-    // Sign out to reset broken Safari session
-    signOut();
-  }, [bootStuck, isAuthenticated, signOut]);
-
-  // Global loading spinner (but never infinite: the timer above will force signOut)
-  if (!profileError && (isLoading || (isAuthenticated && (salonLoading || !profileLoaded)))) {
+  if (waitingForBoot && !profileError) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        {bootStuck && (
-          <p className="text-xs text-muted-foreground">
-            Travado ao iniciar. Reiniciando sessão...
-          </p>
-        )}
       </div>
     );
   }
 
-  // Not logged in
   if (!isAuthenticated) {
     return (
       <Routes>
@@ -109,7 +125,6 @@ const AppRoutes = () => {
     );
   }
 
-  // Profile/session error
   if (profileError) {
     return (
       <Routes>
@@ -128,7 +143,6 @@ const AppRoutes = () => {
     );
   }
 
-  // Approval gating (non-admin)
   if (!isApproved && role !== "admin") {
     return (
       <Routes>
@@ -139,7 +153,6 @@ const AppRoutes = () => {
     );
   }
 
-  // Soft deleted (non-admin)
   if (profile?.deleted_at && role !== "admin") {
     return (
       <Routes>
@@ -157,7 +170,6 @@ const AppRoutes = () => {
     );
   }
 
-  // Access blocked/notice expired (non-admin)
   if (role !== "admin") {
     const isBlocked = profile?.access_state === "blocked";
     const isNoticeExpired =
@@ -184,7 +196,6 @@ const AppRoutes = () => {
     }
   }
 
-  // Owner without salon
   if (role === "dono" && !salon) {
     return (
       <Routes>
