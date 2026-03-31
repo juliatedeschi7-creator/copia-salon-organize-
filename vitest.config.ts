@@ -4,6 +4,11 @@ import path from "path";
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __BUILD_SHA__: JSON.stringify(""),
+    __VERCEL_ENV__: JSON.stringify("test"),
+    __VERCEL_URL__: JSON.stringify(""),
+  },
   test: {
     environment: "jsdom",
     globals: true,
