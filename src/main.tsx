@@ -3,16 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { BootDiagnostics } from "./components/BootDiagnostics";
-
-function canBoot() {
-  const url = (import.meta as any)?.env?.VITE_SUPABASE_URL;
-  const key = (import.meta as any)?.env?.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-  const okUrl = typeof url === "string" && url.startsWith("http");
-  const okKey = typeof key === "string" && key.length > 30;
-
-  return okUrl && okKey;
-}
+import { canBoot } from "./env";
 
 const el = document.getElementById("root");
 

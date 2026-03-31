@@ -5,6 +5,11 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  define: {
+    __BUILD_SHA__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA ?? ""),
+    __VERCEL_ENV__: JSON.stringify(process.env.VERCEL_ENV ?? "local"),
+    __VERCEL_URL__: JSON.stringify(process.env.VERCEL_URL ?? ""),
+  },
   server: {
     host: "::",
     port: 8080,
