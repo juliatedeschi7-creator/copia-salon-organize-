@@ -57,26 +57,37 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
 
     try {
+      // 🔹 Tenta pegar membership primeiro
       const { data: membership, error: membershipErr } = await supabase
         .from("salon_members")
         .select("salon_id")
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (membershipErr || !membership?.salon_id) {
-        setSalon(null);
-        return;
-      }
+      if (membershipErr) console.error("❌ Membership fetch error:", membershipErr);
 
-      const { data: salonData, error: salonErr } = await supabase
-        .from("salons")
-        .select("*")
-        .eq("id", membership.salon_id)
-        .maybeSingle();
+      let salonData;
 
-      if (salonErr) {
-        setSalon(null);
-        return;
+      if (!membership?.salon_id) {
+        // 🔹 Usuário antigo: busca salão onde é dono
+        const { data, error } = await supabase
+          .from("salons")
+          .select("*")
+          .eq("owner_id", user.id)
+          .maybeSingle();
+
+        if (error) console.error("❌ Salon fetch (owner) error:", error);
+        salonData = data;
+      } else {
+        // 🔹 Usuário normal: pega pelo membership
+        const { data, error } = await supabase
+          .from("salons")
+          .select("*")
+          .eq("id", membership.salon_id)
+          .maybeSingle();
+
+        if (error) console.error("❌ Salon fetch error:", error);
+        salonData = data;
       }
 
       setSalon(salonData ?? null);
@@ -132,7 +143,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // Checa duplicidade
+      // 🔹 Checa duplicidade na tabela de salões
       const { data: existingSalon } = await supabase
         .from("salons")
         .select("id")
@@ -144,7 +155,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // Cria salão
+      // 🔹 Cria salão
       const { data: salonRow, error: salonErr } = await supabase
         .from("salons")
         .insert({ name, owner_id: session.user.id })
@@ -156,7 +167,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // Cria membership
+      // 🔹 Cria membership
       const { error: memberErr } = await supabase
         .from("salon_members")
         .insert({ salon_id: salonRow.id, user_id: session.user.id, role: "dono" });
