@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/router";
 import { useSalon } from "@/contexts/SalonContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,24 +10,24 @@ const CreateSalonPage = () => {
   const { salon, isLoading, createSalon } = useSalon();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
-  // 🔹 Redireciona se já tiver salão
+  // 🔹 Redireciona se já tiver salão usando window.location.href
   useEffect(() => {
     if (!isLoading && salon) {
-      router.replace("/dashboard"); // ajuste para sua rota de dashboard
+      window.location.href = "/dashboard"; // ajuste para sua rota real
     }
-  }, [salon, isLoading, router]);
+  }, [salon, isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
     setLoading(true);
     await createSalon(name.trim());
     setLoading(false);
   };
 
-  // 🔹 Loader enquanto session/salon carregam
+  // 🔹 Loader enquanto session ou salão estão carregando
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
