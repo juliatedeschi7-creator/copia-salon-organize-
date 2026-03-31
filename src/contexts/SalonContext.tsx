@@ -163,9 +163,9 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       toast.success("Salão criado com sucesso!");
 
       await fetchSalon();
-    } catch (e) {
-      console.error("❌ Unexpected create error:", e);
-      toast.error("Erro inesperado");
+    } catch (e: any) {
+  console.error("❌ Unexpected create error COMPLETO:", e);
+  toast.error("Erro: " + (e?.message || JSON.stringify(e)));
     }
   };
 
