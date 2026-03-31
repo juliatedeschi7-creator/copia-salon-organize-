@@ -121,29 +121,42 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchSalon]);
 
   const createSalon = async (name: string) => {
-    if (!user) return;
+  if (!user) return;
 
-    console.log("🏢 Creating new salon:", name);
+  console.log("🏢 Creating new salon:", name);
 
-    const { data, error } = await supabase
-      .from("salons")
-      .insert({ name, owner_id: user.id })
-      .select()
-      .single();
+  // 1) cria o salon
+  const { data: salonRow, error: salonErr } = await supabase
+    .from("salons")
+    .insert({ name, owner_id: user.id })
+    .select("*")
+    .single();
 
-    if (error) {
-      console.error("❌ Error creating salon:", error);
-      toast.error("Erro ao criar salão: " + error.message);
-      return;
-    }
+  if (salonErr || !salonRow) {
+    console.error("❌ Error creating salon:", salonErr);
+    toast.error("Erro ao criar salão: " + (salonErr?.message ?? "unknown"));
+    return;
+  }
 
-    console.log("✅ Salon created:", data);
+  // 2) cria/garante membership
+  const { error: memberErr } = await supabase
+    .from("salon_members")
+    .insert({ salon_id: salonRow.id, user_id: user.id, role: "dono" });
 
-    await supabase.from("salon_members").insert({ salon_id: data.id, user_id: user.id, role: "dono" });
+  if (memberErr) {
+    console.error("❌ Error creating salon membership:", memberErr);
+    toast.error("Salão criado, mas falhou vincular o dono (membership): " + memberErr.message);
 
-    setSalon(data as Salon);
-    toast.success("Salão criado com sucesso!");
-  };
+    // opcional: rollback do salão criado para não ficar lixo no banco
+    await supabase.from("salons").delete().eq("id", salonRow.id);
+
+    return;
+  }
+
+  setSalon(salonRow as Salon);
+  toast.success("Salão criado com sucesso!");
+  await fetchSalon(); // garante estado consistente (membership + salon)
+};
 
   const updateSalon = async (updates: Partial<Salon>) => {
     if (!salon) return;
