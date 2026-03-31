@@ -9,10 +9,8 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // import { supabase } from "@/integrations/supabase/client";
 
 /**
- * In-memory Storage fallback.
- * Safari (and some privacy modes) can throw on localStorage access.
- * If we return `undefined`, supabase-js may fall back to internal behavior that
- * can be harder to reason about. This keeps behavior explicit/predictable.
+ * In-memory Storage fallback (last resort).
+ * This won't survive app restarts, but avoids crashes when storage is blocked.
  */
 function createMemoryStorage(): Storage {
   let store: Record<string, string> = {};
@@ -37,29 +35,37 @@ function createMemoryStorage(): Storage {
 
 /**
  * Safe storage wrapper:
- * - Prefer localStorage when available
- * - Fallback to in-memory storage when Safari blocks/throws
+ * 1) prefer localStorage
+ * 2) fallback to sessionStorage (often better on iOS/PWA)
+ * 3) last resort memory storage
  */
 function safeStorage(): Storage {
   try {
-    const testKey = "__sb_storage_test__";
-    localStorage.setItem(testKey, "1");
-    localStorage.removeItem(testKey);
+    const k = "__sb_storage_test__";
+    localStorage.setItem(k, "1");
+    localStorage.removeItem(k);
     return localStorage;
   } catch {
-    return createMemoryStorage();
+    // ignore
   }
+
+  try {
+    const k = "__sb_storage_test__";
+    sessionStorage.setItem(k, "1");
+    sessionStorage.removeItem(k);
+    return sessionStorage;
+  } catch {
+    // ignore
+  }
+
+  return createMemoryStorage();
 }
 
-export const supabase = createClient<Database>(
-  SUPABASE_URL,
-  SUPABASE_PUBLISHABLE_KEY,
-  {
-    auth: {
-      storage: safeStorage(),
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  }
-);
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  auth: {
+    storage: safeStorage(),
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
