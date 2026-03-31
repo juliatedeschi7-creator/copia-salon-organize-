@@ -45,7 +45,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchSalon = useCallback(async () => {
-    if (!isAuthenticated || !user) {
+    if (!isAuthenticated || !user?.id) {
       setSalon(null);
       setIsLoading(false);
       return;
@@ -102,56 +102,70 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchSalon]);
 
   const createSalon = async (name: string) => {
-    if (!user) return;
+    // 🔥 CORREÇÃO CRÍTICA
+    if (!user?.id) {
+      console.error("❌ User inválido:", user);
+      toast.error("Aguarde um momento e tente novamente");
+      return;
+    }
 
     try {
-      console.log("🏢 Creating salon:", name);
+      console.log("🏢 Creating salon:", name, "User:", user.id);
+
+      // 🔥 VALIDAÇÃO EXTRA
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        console.error("❌ Sessão inválida");
+        toast.error("Sessão expirada, faça login novamente");
+        return;
+      }
 
       // 1. criar salão
       const { data: salonRow, error: salonErr } = await supabase
         .from("salons")
-        .insert({ name, owner_id: user.id })
+        .insert({
+          name,
+          owner_id: session.user.id, // 🔥 GARANTE ID VÁLIDO
+        })
         .select("*")
         .single();
 
       if (salonErr || !salonRow) {
         console.error("❌ Salon creation failed:", salonErr);
-        toast.error("Erro ao criar salão");
+        toast.error("Erro ao criar salão: " + salonErr?.message);
         return;
       }
 
       console.log("✅ Salon created:", salonRow.id);
 
-      // 2. criar membership (UPSERT 🔥)
+      // 2. membership
       const { error: memberErr } = await supabase
         .from("salon_members")
-        .upsert({
+        .insert({
           salon_id: salonRow.id,
-          user_id: user.id,
+          user_id: session.user.id,
           role: "dono",
         });
 
       if (memberErr) {
         console.error("❌ Membership failed:", memberErr);
-        toast.error("Erro ao vincular usuário ao salão");
+        toast.error("Erro ao vincular usuário");
         return;
       }
 
       console.log("✅ Membership created");
 
-      // 🔥 FORÇA ESTADO LOCAL IMEDIATO
       setSalon(salonRow as Salon);
 
       toast.success("Salão criado com sucesso!");
 
-      // 🔥 delay pequeno pra garantir persistência no banco
-      setTimeout(() => {
-        fetchSalon();
-      }, 500);
-
+      await fetchSalon();
     } catch (e) {
       console.error("❌ Unexpected create error:", e);
-      toast.error("Erro inesperado ao criar salão");
+      toast.error("Erro inesperado");
     }
   };
 
