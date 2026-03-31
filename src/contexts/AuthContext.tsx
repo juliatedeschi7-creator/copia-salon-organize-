@@ -13,10 +13,6 @@ interface Profile {
   is_approved?: boolean;
   phone?: string | null;
   user_id?: string | null;
-  deleted_at?: string | null;
-  access_state?: string | null;
-  access_message?: string | null;
-  notice_until?: string | null;
 }
 
 interface AuthContextType {
@@ -75,12 +71,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     window.location.assign("/");
   };
 
-  // 🔥 CORRIGIDO AQUI
+  // ✅ CORREÇÃO PRINCIPAL AQUI
   const fetchProfile = async (userId: string): Promise<Profile | null> => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
-      .eq("user_id", userId) // ✅ CORREÇÃO PRINCIPAL
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (error) {
@@ -88,7 +84,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return null;
     }
 
-    return data;
+    return data ?? null;
   };
 
   const fetchRoles = async (userId: string): Promise<AppRole[]> => {
@@ -133,12 +129,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setProfile(prof);
         setRoles(roles);
         setProfileLoaded(true);
-        setProfileError(!prof); // se não achou profile
+        setProfileError(!prof);
       } catch (error) {
         console.error("Erro na inicialização:", error);
         setProfileError(true);
       } finally {
-        setIsLoading(false); // ✅ nunca trava
+        setIsLoading(false);
       }
     };
 
@@ -168,7 +164,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setProfileLoaded(false);
         }
 
-        setIsLoading(false); // ✅ garante fim do loading
+        setIsLoading(false);
       }
     );
 
@@ -183,6 +179,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     !!profile?.approved_at ||
     profile?.is_approved === true;
 
+  // ✅ CORREÇÃO DO ERRO DE BUILD
   const role: AppRole =
     roles.includes("admin")
       ? "admin"
@@ -190,4 +187,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       ? "dono"
       : roles.includes("funcionario")
       ? "funcionario"
-      : roles
+      : roles.includes("cliente")
+      ? "cliente"
+      : profile?.role ?? "cliente";
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        role,
+        roles,
+        isAuthenticated: !!user,
+        isApproved,
+        isLoading,
+        profileLoaded,
+        profileError,
+        profileDiagnostic,
+        signOut,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
