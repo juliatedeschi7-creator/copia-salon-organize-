@@ -45,14 +45,14 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchSalon = useCallback(async () => {
-    // Default: stop spinner fast if we cannot/should not fetch a salon
     if (!isAuthenticated || !user) {
       setSalon(null);
       setIsLoading(false);
       return;
     }
 
-    // Only dono/funcionario are tied to a salon via salon_members
+    // Only dono/funcionario are tied to a salon via salon_members.
+    // For cliente/admin, stop spinner fast.
     if (role !== "dono" && role !== "funcionario") {
       setSalon(null);
       setIsLoading(false);
@@ -108,22 +108,14 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const createSalon = async (name: string) => {
     if (!user) return;
 
-    const { data, error } = await supabase
-      .from("salons")
-      .insert({ name, owner_id: user.id })
-      .select()
-      .single();
+    const { data, error } = await supabase.from("salons").insert({ name, owner_id: user.id }).select().single();
 
     if (error) {
       toast.error("Erro ao criar salão: " + error.message);
       return;
     }
 
-    await supabase.from("salon_members").insert({
-      salon_id: data.id,
-      user_id: user.id,
-      role: "dono",
-    });
+    await supabase.from("salon_members").insert({ salon_id: data.id, user_id: user.id, role: "dono" });
 
     setSalon(data as Salon);
     toast.success("Salão criado com sucesso!");
@@ -143,9 +135,5 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     toast.success("Configurações salvas!");
   };
 
-  return (
-    <SalonContext.Provider value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}>
-      {children}
-    </SalonContext.Provider>
-  );
+  return <SalonContext.Provider value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}>{children}</SalonContext.Provider>;
 };
