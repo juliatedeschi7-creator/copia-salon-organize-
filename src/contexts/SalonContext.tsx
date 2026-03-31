@@ -2,9 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { useRouter } from "next/router";
 
-interface Salon {
+export interface Salon {
   id: string;
   owner_id: string;
   name: string;
@@ -38,18 +37,14 @@ const SalonContext = createContext<SalonContextType>({
   refetch: async () => {},
 });
 
-export const useSalon = () => {
-  const context = useContext(SalonContext);
-  if (!context) throw new Error("useSalon deve ser usado dentro do SalonProvider");
-  return context;
-};
+export const useSalon = () => useContext(SalonContext);
 
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const { user, isAuthenticated } = useAuth();
   const [salon, setSalon] = useState<Salon | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter();
 
+  // Função para buscar salão
   const fetchSalon = useCallback(async () => {
     if (!isAuthenticated || !user?.id) {
       setSalon(null);
@@ -58,6 +53,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     }
 
     setIsLoading(true);
+
     try {
       const { data: membership, error: membershipErr } = await supabase
         .from("salon_members")
@@ -81,17 +77,42 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
 
       setSalon(salonData ?? null);
     } catch (e: any) {
-      console.error("❌ FetchSalon error:", e);
+      console.error("❌ fetchSalon error:", e);
       setSalon(null);
     } finally {
       setIsLoading(false);
     }
   }, [isAuthenticated, user?.id]);
 
+  // 🔹 Espera a session antes de fetch para evitar Safari/magic links travando
   useEffect(() => {
-    fetchSalon();
-  }, [fetchSalon]);
+    const checkSessionAndFetch = async () => {
+      if (!isAuthenticated) {
+        setSalon(null);
+        setIsLoading(false);
+        return;
+      }
 
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user?.id) {
+          setSalon(null);
+          setIsLoading(false);
+          return;
+        }
+
+        await fetchSalon();
+      } catch (e) {
+        console.error("❌ Session fetch error:", e);
+        setSalon(null);
+        setIsLoading(false);
+      }
+    };
+
+    checkSessionAndFetch();
+  }, [isAuthenticated, fetchSalon]);
+
+  // Criar salão
   const createSalon = async (name: string) => {
     if (!user?.id) {
       toast.error("Aguarde um momento e tente novamente");
@@ -99,6 +120,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
+      // Bloqueio de duplicidade
       const { data: existingSalon } = await supabase
         .from("salons")
         .select("*")
@@ -108,10 +130,10 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       if (existingSalon) {
         toast.error("Você já possui um salão!");
         setSalon(existingSalon);
-        router.push("/dashboard"); // redireciona automaticamente
         return;
       }
 
+      // Criar salão
       const { data: salonRow, error: salonErr } = await supabase
         .from("salons")
         .insert({ name, owner_id: user.id })
@@ -123,6 +145,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
+      // Criar membership
       const { error: memberErr } = await supabase
         .from("salon_members")
         .insert({ salon_id: salonRow.id, user_id: user.id, role: "dono" });
@@ -134,10 +157,8 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
 
       setSalon(salonRow as Salon);
       toast.success("Salão criado com sucesso!");
-      await fetchSalon();
-      router.push("/dashboard");
     } catch (e: any) {
-      console.error("❌ CreateSalon error:", e);
+      console.error("❌ createSalon error:", e);
       toast.error("Erro: " + (e?.message || JSON.stringify(e)));
     }
   };
@@ -151,7 +172,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       .eq("id", salon.id);
 
     if (error) {
-      console.error("❌ UpdateSalon error:", error);
+      console.error("❌ updateSalon error:", error);
       toast.error("Erro ao atualizar");
       return;
     }
@@ -161,7 +182,9 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <SalonContext.Provider value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}>
+    <SalonContext.Provider
+      value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}
+    >
       {children}
     </SalonContext.Provider>
   );
