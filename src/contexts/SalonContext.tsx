@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { useRouter } from "next/router";
 
 interface Salon {
   id: string;
@@ -37,18 +38,17 @@ const SalonContext = createContext<SalonContextType>({
   refetch: async () => {},
 });
 
-// Hook para usar o contexto
 export const useSalon = () => {
   const context = useContext(SalonContext);
   if (!context) throw new Error("useSalon deve ser usado dentro do SalonProvider");
   return context;
 };
 
-// Provider
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const { user, isAuthenticated } = useAuth();
   const [salon, setSalon] = useState<Salon | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
 
   const fetchSalon = useCallback(async () => {
     if (!isAuthenticated || !user?.id) {
@@ -58,7 +58,6 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     }
 
     setIsLoading(true);
-
     try {
       const { data: membership, error: membershipErr } = await supabase
         .from("salon_members")
@@ -100,19 +99,19 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      // Bloqueio de duplicidade
       const { data: existingSalon } = await supabase
         .from("salons")
-        .select("id")
+        .select("*")
         .eq("owner_id", user.id)
         .maybeSingle();
 
       if (existingSalon) {
         toast.error("Você já possui um salão!");
+        setSalon(existingSalon);
+        router.push("/dashboard"); // redireciona automaticamente
         return;
       }
 
-      // Criação do salão
       const { data: salonRow, error: salonErr } = await supabase
         .from("salons")
         .insert({ name, owner_id: user.id })
@@ -124,7 +123,6 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // Criação do membership
       const { error: memberErr } = await supabase
         .from("salon_members")
         .insert({ salon_id: salonRow.id, user_id: user.id, role: "dono" });
@@ -137,6 +135,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       setSalon(salonRow as Salon);
       toast.success("Salão criado com sucesso!");
       await fetchSalon();
+      router.push("/dashboard");
     } catch (e: any) {
       console.error("❌ CreateSalon error:", e);
       toast.error("Erro: " + (e?.message || JSON.stringify(e)));
