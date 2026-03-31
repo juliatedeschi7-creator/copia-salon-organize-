@@ -36,7 +36,22 @@ const SalonContext = createContext<SalonContextType>({
   updateSalon: async () => {},
   refetch: async () => {},
 });
+const createSalon = async (name: string) => {
+  if (!user?.id) return;
 
+  // 🔥 BLOQUEIO DE DUPLICIDADE
+  const { data: existingSalon } = await supabase
+    .from("salons")
+    .select("id")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  if (existingSalon) {
+    toast.error("Você já possui um salão!");
+    return;
+  }
+
+  // resto do código continua...
 export const useSalon = () => useContext(SalonContext);
 
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
