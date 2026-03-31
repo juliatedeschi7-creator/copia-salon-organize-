@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -44,51 +44,70 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const [salon, setSalon] = useState<Salon | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchSalon = async () => {
-    if (!user) {
+  const fetchSalon = useCallback(async () => {
+    // Default: stop spinner fast if we cannot/should not fetch a salon
+    if (!isAuthenticated || !user) {
       setSalon(null);
       setIsLoading(false);
       return;
     }
 
+    // Only dono/funcionario are tied to a salon via salon_members
+    if (role !== "dono" && role !== "funcionario") {
+      setSalon(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
     try {
-      // For dono/funcionario, fetch via salon_members
-      const { data: membership } = await supabase
+      const { data: membership, error: membershipErr } = await supabase
         .from("salon_members")
         .select("salon_id")
         .eq("user_id", user.id)
         .limit(1)
         .maybeSingle();
 
-      if (membership?.salon_id) {
-        const { data } = await supabase
-          .from("salons")
-          .select("*")
-          .eq("id", membership.salon_id)
-          .maybeSingle();
-        setSalon(data as Salon | null);
-      } else {
+      if (membershipErr) {
+        console.error("❌ Error fetching salon membership:", membershipErr);
         setSalon(null);
+        return;
       }
+
+      if (!membership?.salon_id) {
+        setSalon(null);
+        return;
+      }
+
+      const { data: salonData, error: salonErr } = await supabase
+        .from("salons")
+        .select("*")
+        .eq("id", membership.salon_id)
+        .maybeSingle();
+
+      if (salonErr) {
+        console.error("❌ Error fetching salon:", salonErr);
+        setSalon(null);
+        return;
+      }
+
+      setSalon((salonData ?? null) as Salon | null);
     } catch (e) {
       console.error("❌ Error fetching salon:", e);
       setSalon(null);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isAuthenticated, user?.id, role]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchSalon();
-    } else {
-      setSalon(null);
-      setIsLoading(false);
-    }
-  }, [user, isAuthenticated]);
+    fetchSalon();
+  }, [fetchSalon]);
 
   const createSalon = async (name: string) => {
     if (!user) return;
+
     const { data, error } = await supabase
       .from("salons")
       .insert({ name, owner_id: user.id })
@@ -100,10 +119,11 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    // Add self as dono member
-    await supabase
-      .from("salon_members")
-      .insert({ salon_id: data.id, user_id: user.id, role: "dono" });
+    await supabase.from("salon_members").insert({
+      salon_id: data.id,
+      user_id: user.id,
+      role: "dono",
+    });
 
     setSalon(data as Salon);
     toast.success("Salão criado com sucesso!");
@@ -111,10 +131,8 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
 
   const updateSalon = async (updates: Partial<Salon>) => {
     if (!salon) return;
-    const { error } = await supabase
-      .from("salons")
-      .update(updates)
-      .eq("id", salon.id);
+
+    const { error } = await supabase.from("salons").update(updates).eq("id", salon.id);
 
     if (error) {
       toast.error("Erro ao salvar: " + error.message);
