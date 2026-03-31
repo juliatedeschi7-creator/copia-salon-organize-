@@ -13,10 +13,10 @@ const CreateSalonPage = () => {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // 🔹 Redirecionamento automático se já tiver salão
+  // 🔹 Redireciona se já tiver salão
   useEffect(() => {
     if (!isLoading && salon) {
-      router.replace("/dashboard"); // ou a rota que você usa como dashboard
+      router.replace("/dashboard"); // ajuste para sua rota de dashboard
     }
   }, [salon, isLoading, router]);
 
@@ -28,15 +28,16 @@ const CreateSalonPage = () => {
     setLoading(false);
   };
 
-  // 🔹 Enquanto carrega os dados do contexto
-  if (isLoading) return (
-    <div className="flex min-h-screen items-center justify-center">
-      <Loader2 className="h-10 w-10 animate-spin" />
-    </div>
-  );
+  // 🔹 Loader enquanto session/salon carregam
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin" />
+      </div>
+    );
+  }
 
-  // 🔹 Se já tiver salão, não renderiza o formulário
-  if (salon) return null;
+  if (salon) return null; // já redirecionou
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
