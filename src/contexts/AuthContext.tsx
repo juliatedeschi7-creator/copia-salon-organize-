@@ -226,6 +226,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       });
 
+    // STORAGE SYNC: Listen for changes across browser tabs/windows
+    const handleStorageChange = (e: StorageEvent) => {
+      console.log("📡 Storage changed in another tab, syncing auth state");
+
+      if (e.key?.startsWith("sb-") && e.key?.endsWith("-auth-token")) {
+        if (!e.newValue) {
+          // Token was removed in another tab
+          console.warn("🔄 Auth token removed, signing out locally");
+          setUser(null);
+          setProfile(null);
+          setRoles([]);
+        } else {
+          // Token was updated in another tab, refresh session
+          supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session?.user) {
+              console.log("🔄 Session recovered from another tab");
+              setUser(session.user);
+              // Profile will be fetched by the main auth state handler
+            }
+          });
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -333,6 +359,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       mountedRef.current = false;
       clearTimeout(safetyTimer);
       subscription?.unsubscribe();
+      window.removeEventListener("storage", handleStorageChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
