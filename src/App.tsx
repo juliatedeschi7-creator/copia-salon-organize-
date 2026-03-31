@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -22,84 +22,52 @@ import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
-// Debug Loading Screen with detailed status
-const DebugLoadingScreen = ({ status }: { status: string }) => {
-  return (
-    <div className="flex h-screen flex-col items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center space-y-4">
-        <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
-        <p className="text-lg font-semibold">Carregando autenticação...</p>
-        <div className="bg-muted p-4 rounded-lg text-xs text-left space-y-1 font-mono">
-          <p className="text-muted-foreground">{status}</p>
-        </div>
-      </div>
-    </div>
-  );
-};
+const LoadingScreen = ({ text }: { text: string }) => (
+  <div className="flex h-screen flex-col items-center justify-center bg-background px-4">
+    <Loader2 className="h-10 w-10 animate-spin mb-4" />
+    <p>{text}</p>
+  </div>
+);
 
-// Protected routes wrapper component with enhanced debugging
 const ProtectedRoutes = () => {
-  const { isAuthenticated, isLoading, profileLoaded, profile, isApproved, role } = useAuth();
+  const { isAuthenticated, isLoading, profileLoaded, profile, role } = useAuth();
   const { salon, isLoading: salonLoading } = useSalon();
-  const [debugInfo, setDebugInfo] = useState<string>("");
 
-  // Update debug info whenever state changes
-  useEffect(() => {
-    const info = [
-      `isLoading: ${isLoading}`,
-      `profileLoaded: ${profileLoaded}`,
-      `isAuthenticated: ${isAuthenticated}`,
-      `salonLoading: ${salonLoading}`,
-      `hasSalon: ${!!salon}`,
-      `profile.status: ${profile?.status || "N/A"}`,
-      `access_state: ${profile?.access_state || "N/A"}`,
-      `role: ${role}`,
-    ].join(" | ");
-    
-    setDebugInfo(info);
-    console.log("Debug Info:", info);
-  }, [isLoading, profileLoaded, isAuthenticated, salonLoading, salon, profile, role]);
-
-  // Show loading while authenticating
+  // 🔥 1. AUTH loading
   if (isLoading) {
-    return <DebugLoadingScreen status="🔄 Obtendo sessão de autenticação..." />;
+    return <LoadingScreen text="Carregando autenticação..." />;
   }
 
-  // Not authenticated, show auth page
+  // 🔥 2. NOT LOGGED
   if (!isAuthenticated) {
-    console.log("✅ User not authenticated - showing AuthPage");
     return <AuthPage />;
   }
 
-  // Profile loaded but waiting for salon
-  if (profileLoaded && salonLoading) {
-    return <DebugLoadingScreen status="🏢 Carregando dados do salão..." />;
+  // 🔥 3. ESPERA PROFILE CARREGAR
+  if (!profileLoaded) {
+    return <LoadingScreen text="Carregando perfil..." />;
   }
 
-  // Check pending approval
-  if (profileLoaded && profile && profile.status === "pending") {
-    console.log("⏳ User pending approval");
+  // 🔥 4. ESPERA SALON TERMINAR DE CARREGAR (ESSENCIAL)
+  if (salonLoading) {
+    return <LoadingScreen text="Carregando salão..." />;
+  }
+
+  // 🔥 5. BLOQUEIOS
+  if (profile?.status === "pending") {
     return <PendingApprovalPage />;
   }
 
-  // Check blocked access
-  if (profileLoaded && profile && profile.access_state === "blocked") {
-    console.log("🚫 User access blocked");
+  if (profile?.access_state === "blocked") {
     return <BlockedAccessPage />;
   }
 
-  // ✅ KEY CHECK: User authenticated but has no salon
-  if (profileLoaded && !salon && isAuthenticated && role !== "admin") {
-    console.warn("🏢 User authenticated but has no salon - showing CreateSalonPage");
+  // 🔥 6. AGORA SIM decide se tem salão
+  if (!salon && role !== "admin") {
     return <CreateSalonPage />;
   }
 
-  // If still loading salon but all other conditions are met
-  if (salonLoading && isAuthenticated) {
-    return <DebugLoadingScreen status="⏳ Verificando salão..." />;
-  }
-
-  // User is fully loaded and has salon - show app
+  // 🔥 7. APP NORMAL
   return (
     <AppLayout>
       <Routes>
