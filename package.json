@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node -e \"console.log('ENV_CHECK', { url: process.env.VITE_SUPABASE_URL ? process.env.VITE_SUPABASE_URL.slice(0,28) : null, key: process.env.VITE_SUPABASE_PUBLISHABLE_KEY ? process.env.VITE_SUPABASE_PUBLISHABLE_KEY.slice(0,12) : null })\" && vite build"
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
