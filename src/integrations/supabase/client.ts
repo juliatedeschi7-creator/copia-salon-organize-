@@ -34,30 +34,36 @@ function createMemoryStorage(): Storage {
 }
 
 /**
- * Safe storage wrapper:
- * 1) prefer localStorage
- * 2) fallback to sessionStorage (often better on iOS/PWA)
- * 3) last resort memory storage
+ * Safe storage wrapper with enhanced logging:
+ * 1) prefer localStorage (better persistence)
+ * 2) fallback to sessionStorage (better for Safari/ITP/PWA)
+ * 3) last resort memory storage (no persistence)
  */
 function safeStorage(): Storage {
+  // Try localStorage first
   try {
     const k = "__sb_storage_test__";
     localStorage.setItem(k, "1");
     localStorage.removeItem(k);
+    console.log("✅ Using localStorage for Supabase session");
     return localStorage;
-  } catch {
-    // ignore
+  } catch (e) {
+    console.warn("⚠️ localStorage blocked (Safari ITP/Private Mode), trying sessionStorage", e);
   }
 
+  // Try sessionStorage (often better for Safari/PWA)
   try {
     const k = "__sb_storage_test__";
     sessionStorage.setItem(k, "1");
     sessionStorage.removeItem(k);
+    console.log("✅ Using sessionStorage for Supabase session");
     return sessionStorage;
-  } catch {
-    // ignore
+  } catch (e) {
+    console.warn("⚠️ sessionStorage blocked, falling back to memory storage", e);
   }
 
+  // Last resort
+  console.warn("⚠️ All storage mechanisms blocked, using in-memory storage (will not persist)");
   return createMemoryStorage();
 }
 
