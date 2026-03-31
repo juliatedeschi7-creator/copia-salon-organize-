@@ -22,38 +22,58 @@ import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
-// Protected routes wrapper component
+// Debug Loading Screen with detailed status
+const DebugLoadingScreen = ({ status }: { status: string }) => {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center space-y-4">
+        <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
+        <p className="text-lg font-semibold">Carregando autenticação...</p>
+        <div className="bg-muted p-4 rounded-lg text-xs text-left space-y-1 font-mono">
+          <p className="text-muted-foreground">{status}</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Protected routes wrapper component with enhanced debugging
 const ProtectedRoutes = () => {
   const { isAuthenticated, isLoading, profileLoaded, profile, isApproved, role } = useAuth();
   const { salon, isLoading: salonLoading } = useSalon();
+  const [debugInfo, setDebugInfo] = useState<string>("");
+
+  // Update debug info whenever state changes
+  useEffect(() => {
+    const info = [
+      `isLoading: ${isLoading}`,
+      `profileLoaded: ${profileLoaded}`,
+      `isAuthenticated: ${isAuthenticated}`,
+      `salonLoading: ${salonLoading}`,
+      `hasSalon: ${!!salon}`,
+      `profile.status: ${profile?.status || "N/A"}`,
+      `access_state: ${profile?.access_state || "N/A"}`,
+      `role: ${role}`,
+    ].join(" | ");
+    
+    setDebugInfo(info);
+    console.log("Debug Info:", info);
+  }, [isLoading, profileLoaded, isAuthenticated, salonLoading, salon, profile, role]);
 
   // Show loading while authenticating
   if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p>Carregando autenticação...</p>
-        </div>
-      </div>
-    );
+    return <DebugLoadingScreen status="🔄 Obtendo sessão de autenticação..." />;
   }
 
   // Not authenticated, show auth page
   if (!isAuthenticated) {
+    console.log("✅ User not authenticated - showing AuthPage");
     return <AuthPage />;
   }
 
   // Profile loaded but waiting for salon
   if (profileLoaded && salonLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p>Carregando salão...</p>
-        </div>
-      </div>
-    );
+    return <DebugLoadingScreen status="🏢 Carregando dados do salão..." />;
   }
 
   // Check pending approval
@@ -72,6 +92,11 @@ const ProtectedRoutes = () => {
   if (profileLoaded && !salon && isAuthenticated && role !== "admin") {
     console.warn("🏢 User authenticated but has no salon - showing CreateSalonPage");
     return <CreateSalonPage />;
+  }
+
+  // If still loading salon but all other conditions are met
+  if (salonLoading && isAuthenticated) {
+    return <DebugLoadingScreen status="⏳ Verificando salão..." />;
   }
 
   // User is fully loaded and has salon - show app
