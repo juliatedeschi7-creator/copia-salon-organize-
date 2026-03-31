@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/router";
 import { useSalon } from "@/contexts/SalonContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,9 +8,17 @@ import { Label } from "@/components/ui/label";
 import { Scissors, Loader2 } from "lucide-react";
 
 const CreateSalonPage = () => {
-  const { createSalon } = useSalon();
+  const { salon, isLoading, createSalon } = useSalon();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  // 🔹 Redirecionamento automático se já tiver salão
+  useEffect(() => {
+    if (!isLoading && salon) {
+      router.replace("/dashboard"); // ou a rota que você usa como dashboard
+    }
+  }, [salon, isLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,6 +27,16 @@ const CreateSalonPage = () => {
     await createSalon(name.trim());
     setLoading(false);
   };
+
+  // 🔹 Enquanto carrega os dados do contexto
+  if (isLoading) return (
+    <div className="flex min-h-screen items-center justify-center">
+      <Loader2 className="h-10 w-10 animate-spin" />
+    </div>
+  );
+
+  // 🔹 Se já tiver salão, não renderiza o formulário
+  if (salon) return null;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
