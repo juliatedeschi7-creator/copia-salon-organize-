@@ -1,33 +1,65 @@
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/router";
 import { useSalon } from "@/contexts/SalonContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Scissors, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const CreateSalonPage = () => {
-  const { createSalon, salon, isLoading, initialized } = useSalon();
+  const router = useRouter();
+  const { salon, isLoading, refetch } = useSalon();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Se já existe salão, redireciona automaticamente
+  useEffect(() => {
+    if (!isLoading && salon) {
+      router.replace("/dashboard"); // ou a página principal do sistema
+    }
+  }, [isLoading, salon, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
     setLoading(true);
-    await createSalon(name.trim());
-    setLoading(false);
+
+    try {
+      const res = await fetch("/api/create-salon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data?.salon) {
+        toast.success("Salão criado com sucesso!");
+        setName("");
+        await refetch(); // atualiza o contexto
+        router.replace("/dashboard"); // vai pro sistema
+      } else {
+        toast.error(data?.error || "Erro ao criar salão");
+      }
+    } catch (err: any) {
+      console.error("Erro ao criar salão:", err);
+      toast.error("Erro inesperado");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // 🔹 Não renderiza a página de criação se já tiver salão
-  useEffect(() => {
-    if (initialized && salon) {
-      window.location.href = "/"; // ou sua página principal
-    }
-  }, [initialized, salon]);
-
-  if (!initialized || isLoading) return <div className="h-screen flex items-center justify-center">Carregando...</div>;
-  if (salon) return null; // usuário já tem salão
+  if (isLoading || salon) {
+    // enquanto carrega ou já tem salão, mostra loader simples
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
