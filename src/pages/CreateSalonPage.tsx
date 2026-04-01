@@ -6,53 +6,43 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Scissors, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 const CreateSalonPage = () => {
-  const { salon, isLoading, refetch } = useSalon();
+  const { salon, isLoading, createSalon, refetch } = useSalon();
+  const { isAuthenticated } = useAuth();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Se já existe salão, redireciona automaticamente
+  // Redireciona quem já tem salão ou não está autenticado
   useEffect(() => {
-    if (!isLoading && salon) {
-      // redirecionamento simples no Vite/React
-      window.location.href = "/dashboard"; // altere para a rota principal do seu sistema
+    if (!isLoading) {
+      if (!isAuthenticated) {
+        window.location.href = "/login"; // vai para login se não estiver logado
+      } else if (salon) {
+        window.location.href = "/dashboard"; // já tem salão → dashboard
+      }
     }
-  }, [isLoading, salon]);
+  }, [isLoading, salon, isAuthenticated]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
     setLoading(true);
-
     try {
-      const res = await fetch("/api/create-salon", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data?.salon) {
-        toast.success("Salão criado com sucesso!");
-        setName("");
-        await refetch(); // atualiza o contexto
-        window.location.href = "/dashboard"; // redireciona para o sistema
-      } else {
-        toast.error(data?.error || "Erro ao criar salão");
-      }
-    } catch (err: any) {
-      console.error("Erro ao criar salão:", err);
-      toast.error("Erro inesperado");
+      await createSalon(name.trim());
+      await refetch();
+      window.location.href = "/dashboard";
+    } catch (err) {
+      console.error(err);
+      toast.error("Erro ao criar salão");
     } finally {
       setLoading(false);
     }
   };
 
   if (isLoading || salon) {
-    // enquanto carrega ou já tem salão, mostra loader simples
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
