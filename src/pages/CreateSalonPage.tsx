@@ -7,36 +7,27 @@ import { Label } from "@/components/ui/label";
 import { Scissors, Loader2 } from "lucide-react";
 
 const CreateSalonPage = () => {
-  const { salon, isLoading, initialized, createSalon } = useSalon();
+  const { createSalon, salon, isLoading, initialized } = useSalon();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // Loader até inicializar contexto
-  if (!initialized || isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-10 w-10 animate-spin" />
-      </div>
-    );
-  }
-
-  // Redireciona se já tiver salão
-  useEffect(() => {
-    if (salon) {
-      window.location.href = "/dashboard"; // ajuste sua rota real
-    }
-  }, [salon]);
-
-  if (salon) return null; // evita renderização da página de criação
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-
     setLoading(true);
     await createSalon(name.trim());
     setLoading(false);
   };
+
+  // 🔹 Não renderiza a página de criação se já tiver salão
+  useEffect(() => {
+    if (initialized && salon) {
+      window.location.href = "/"; // ou sua página principal
+    }
+  }, [initialized, salon]);
+
+  if (!initialized || isLoading) return <div className="h-screen flex items-center justify-center">Carregando...</div>;
+  if (salon) return null; // usuário já tem salão
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
