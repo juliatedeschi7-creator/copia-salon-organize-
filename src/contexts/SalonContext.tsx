@@ -57,7 +57,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
 
     try {
-      // 🔹 Tenta pegar membership primeiro
+      // Primeiro tenta pegar membership
       const { data: membership, error: membershipErr } = await supabase
         .from("salon_members")
         .select("salon_id")
@@ -69,7 +69,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       let salonData;
 
       if (!membership?.salon_id) {
-        // 🔹 Usuário antigo: busca salão onde é dono
+        // Usuário antigo: busca salão onde é dono
         const { data, error } = await supabase
           .from("salons")
           .select("*")
@@ -79,7 +79,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         if (error) console.error("❌ Salon fetch (owner) error:", error);
         salonData = data;
       } else {
-        // 🔹 Usuário normal: pega pelo membership
+        // Usuário normal: pega pelo membership
         const { data, error } = await supabase
           .from("salons")
           .select("*")
@@ -101,13 +101,6 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const checkSessionAndFetch = async () => {
-      if (!isAuthenticated) {
-        setSalon(null);
-        setIsLoading(false);
-        setInitialized(true);
-        return;
-      }
-
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user?.id) {
@@ -128,7 +121,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
     };
 
     checkSessionAndFetch();
-  }, [isAuthenticated, fetchSalon]);
+  }, [fetchSalon]);
 
   const createSalon = async (name: string) => {
     if (!user?.id) {
@@ -143,7 +136,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // 🔹 Checa duplicidade na tabela de salões
+      // Checa duplicidade
       const { data: existingSalon } = await supabase
         .from("salons")
         .select("id")
@@ -155,7 +148,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // 🔹 Cria salão
+      // Cria salão
       const { data: salonRow, error: salonErr } = await supabase
         .from("salons")
         .insert({ name, owner_id: session.user.id })
@@ -167,7 +160,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // 🔹 Cria membership
+      // Cria membership
       const { error: memberErr } = await supabase
         .from("salon_members")
         .insert({ salon_id: salonRow.id, user_id: session.user.id, role: "dono" });
