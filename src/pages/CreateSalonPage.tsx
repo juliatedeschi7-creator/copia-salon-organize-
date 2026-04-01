@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/router";
 import { useSalon } from "@/contexts/SalonContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,7 +8,6 @@ import { Scissors, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 const CreateSalonPage = () => {
-  const router = useRouter();
   const { salon, isLoading, refetch } = useSalon();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -17,9 +15,10 @@ const CreateSalonPage = () => {
   // Se já existe salão, redireciona automaticamente
   useEffect(() => {
     if (!isLoading && salon) {
-      router.replace("/dashboard"); // ou a página principal do sistema
+      // redirecionamento simples no Vite/React
+      window.location.href = "/dashboard"; // altere para a rota principal do seu sistema
     }
-  }, [isLoading, salon, router]);
+  }, [isLoading, salon]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +39,7 @@ const CreateSalonPage = () => {
         toast.success("Salão criado com sucesso!");
         setName("");
         await refetch(); // atualiza o contexto
-        router.replace("/dashboard"); // vai pro sistema
+        window.location.href = "/dashboard"; // redireciona para o sistema
       } else {
         toast.error(data?.error || "Erro ao criar salão");
       }
