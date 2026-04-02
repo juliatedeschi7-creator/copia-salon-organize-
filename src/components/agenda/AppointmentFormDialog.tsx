@@ -40,9 +40,15 @@ interface ClientOption {
   name: string;
 }
 
-const AppointmentFormDialog = ({ open, onOpenChange, onSuccess, appointment }: AppointmentFormDialogProps) => {
+const AppointmentFormDialog = ({
+  open,
+  onOpenChange,
+  onSuccess,
+  appointment,
+}: AppointmentFormDialogProps) => {
   const { salon } = useSalon();
   const { user } = useAuth();
+
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,30 +61,6 @@ const AppointmentFormDialog = ({ open, onOpenChange, onSuccess, appointment }: A
   const [notes, setNotes] = useState("");
 
   const isEdit = !!appointment;
-
-  useEffect(() => {
-    if (!open || !salon) return;
-    setFetching(true);
-
-    const fetchData = async () => {
-      const [servicesRes, salonClientsList] = await Promise.all([
-        supabase.from("services").select("id, name, duration_minutes").eq("salon_id", salon.id).eq("is_active", true),
-        fetchSalonClients(salon.id),
-      ]);
-
-      setServices((servicesRes.data || []) as ServiceOption[]);
-      setClients(
-        salonClientsList.map((c) => ({
-          user_id: c.user_id,
-          name: c.displayName,
-        }))
-      );
-
-      setFetching(false);
-    };
-
-    fetchData();
-  }, [open, salon]);
 
   useEffect(() => {
     if (appointment) {
@@ -95,6 +77,53 @@ const AppointmentFormDialog = ({ open, onOpenChange, onSuccess, appointment }: A
       setNotes("");
     }
   }, [appointment, open]);
+
+  useEffect(() => {
+    if (!open || !salon) return;
+
+    let cancelled = false;
+    setFetching(true);
+
+    const fetchData = async () => {
+      try {
+        const [servicesRes, salonClientsList] = await Promise.all([
+          supabase
+            .from("services")
+            .select("id, name, duration_minutes")
+            .eq("salon_id", salon.id)
+            .eq("is_active", true),
+          fetchSalonClients(salon.id),
+        ]);
+
+        if (servicesRes.error) throw servicesRes.error;
+
+        if (cancelled) return;
+
+        setServices((servicesRes.data || []) as ServiceOption[]);
+        setClients(
+          salonClientsList.map((c) => ({
+            user_id: c.user_id,
+            name: c.displayName,
+          }))
+        );
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error(err);
+          toast.error("Erro ao carregar dados do agendamento.");
+          setServices([]);
+          setClients([]);
+        }
+      } finally {
+        if (!cancelled) setFetching(false);
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, salon?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,57 +144,67 @@ const AppointmentFormDialog = ({ open, onOpenChange, onSuccess, appointment }: A
 
     setLoading(true);
 
-    if (isEdit && appointment) {
-      const { error } = await supabase
-        .from("appointments")
-        .update({
+    try {
+      if (isEdit && appointment) {
+        const { error } = await supabase
+          .from("appointments")
+          .update({
+            service_id: serviceId,
+            client_user_id: clientUserId,
+            appointment_date: date,
+            start_time: startTime,
+            end_time: endTime,
+            notes: notes || "",
+          })
+          .eq("id", appointment.id);
+
+        if (error) throw error;
+
+        toast.success("Agendamento atualizado!");
+        onSuccess();
+        onOpenChange(false);
+      } else {
+        const now = new Date().toISOString();
+
+        const { error } = await supabase.from("appointments").insert({
+          salon_id: salon.id,
           service_id: serviceId,
           client_user_id: clientUserId,
           appointment_date: date,
           start_time: startTime,
           end_time: endTime,
           notes: notes || "",
-        })
-        .eq("id", appointment.id);
+          status: "aprovado",
+          whatsapp_code: generateWhatsAppCode(),
+          whatsapp_confirmed_at: now,
+          whatsapp_confirmed_by: user.id,
+        });
 
-      if (error) {
-        toast.error("Erro ao atualizar: " + error.message);
-      } else {
-        toast.success("Agendamento atualizado!");
-        onSuccess();
-        onOpenChange(false);
-      }
-    } else {
-      const now = new Date().toISOString();
-      const { error } = await supabase.from("appointments").insert({
-        salon_id: salon.id,
-        service_id: serviceId,
-        client_user_id: clientUserId,
-        appointment_date: date,
-        start_time: startTime,
-        end_time: endTime,
-        notes: notes || "",
-        status: "aprovado",
-        whatsapp_code: generateWhatsAppCode(),
-        whatsapp_confirmed_at: now,
-        whatsapp_confirmed_by: user.id,
-      });
+        if (error) throw error;
 
-      if (error) {
-        toast.error("Erro ao criar: " + error.message);
-      } else {
         toast.success("Agendamento criado!");
         onSuccess();
         onOpenChange(false);
       }
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Erro ao salvar: " + (err?.message ?? "tente novamente"));
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="
+          w-[calc(100vw-2rem)]
+          sm:max-w-md
+          max-w-[520px]
+          max-h-[85vh]
+          overflow-y-auto
+        "
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar agendamento" : "Novo agendamento"}</DialogTitle>
         </DialogHeader>
@@ -221,7 +260,12 @@ const AppointmentFormDialog = ({ open, onOpenChange, onSuccess, appointment }: A
 
             <div className="space-y-2">
               <Label>Observações</Label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional..." rows={2} />
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Opcional..."
+                rows={2}
+              />
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
