@@ -195,6 +195,13 @@ const ClientInvitePage = () => {
         navigate("/");
       }
     } else {
+      // SIGN UP – validate required birth date before proceeding
+      if (!birthDate) {
+        toast.error("Informe sua data de nascimento.");
+        setSubmitting(false);
+        return;
+      }
+
       // SIGN UP
       const { data, error } = await supabase.auth.signUp({
         email,
