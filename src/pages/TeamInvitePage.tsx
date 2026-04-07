@@ -27,6 +27,7 @@ const roleLabels: Record<string, string> = {
 const TeamInvitePage = () => {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
+
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -41,45 +42,59 @@ const TeamInvitePage = () => {
 
   useEffect(() => {
     const init = async () => {
-      if (!token) { setNotFound(true); setLoading(false); return; }
+      if (!token) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
 
+      // 🔥 busca convite corretamente
       const { data, error } = await supabase.rpc("get_team_invite_by_token", { _token: token });
+
       if (error || !data || (data as any[]).length === 0) {
         setNotFound(true);
         setLoading(false);
         return;
       }
 
-      const row = Array.isArray(data) ? data[0] : data;
-      const info = row as InviteInfo;
+      const inviteData = Array.isArray(data) ? data[0] : data;
 
-      if (info.used_at) { setAlreadyUsed(true); setLoading(false); return; }
-      if (info.expires_at && new Date(info.expires_at) < new Date()) {
-        setExpired(true); setLoading(false); return;
+      if (inviteData.used_at) {
+        setAlreadyUsed(true);
+        setLoading(false);
+        return;
       }
 
-      setInvite(info);
+      if (inviteData.expires_at && new Date(inviteData.expires_at) < new Date()) {
+        setExpired(true);
+        setLoading(false);
+        return;
+      }
 
-      // If already authenticated, accept the invite immediately
+      setInvite(inviteData);
+
+      // 🔥 aceita automaticamente se já estiver logado
       const { data: { session } } = await supabase.auth.getSession();
+
       if (session?.user) {
-        const result = await supabase.rpc("accept_team_invite", { _token: token });
-        const status = typeof result.data === "string" ? result.data : null;
-        if (status === "ok") {
-          toast.success("Convite aceito! Bem-vindo(a) à equipe.");
+        const result = await supabase.rpc("accept_team_invite", {
+          _token: token,
+          _user_id: session.user.id
+        });
+
+        if (result.data === "ok") {
+          toast.success("Convite aceito! 🎉");
           navigate("/");
           return;
-        } else if (status === "already_used") {
-          setAlreadyUsed(true);
-        } else if (status === "expired") {
-          setExpired(true);
-        } else {
-          toast.error("Não foi possível aceitar o convite. Tente novamente.");
         }
+
+        if (result.data === "already_used") setAlreadyUsed(true);
+        if (result.data === "expired") setExpired(true);
       }
 
       setLoading(false);
     };
+
     init();
   }, [token, navigate]);
 
@@ -87,65 +102,74 @@ const TeamInvitePage = () => {
     e.preventDefault();
     setSubmitting(true);
 
+    if (!token) {
+      toast.error("Token inválido");
+      setSubmitting(false);
+      return;
+    }
+
     if (isLogin) {
+      // 🔥 login
       const { error } = await supabase.auth.signInWithPassword({ email, password });
+
       if (error) {
         toast.error(error.message);
         setSubmitting(false);
         return;
       }
-      // After login, accept the invite
-      const result = await supabase.rpc("accept_team_invite", { _token: token });
-      const status = typeof result.data === "string" ? result.data : null;
-      if (status === "ok") {
-        toast.success("Convite aceito! Bem-vindo(a) à equipe.");
+
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const result = await supabase.rpc("accept_team_invite", {
+        _token: token,
+        _user_id: user?.id
+      });
+
+      if (result.data === "ok") {
+        toast.success("Convite aceito! 🎉");
         navigate("/");
       } else {
-        toast.error("Erro ao aceitar convite. Verifique se o link ainda é válido.");
+        toast.error("Erro ao aceitar convite.");
       }
     } else {
+      // 🔥 cadastro
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { name, salon_team_invite_token: token },
-          emailRedirectTo: window.location.origin + "/",
-        },
+          data: { name },
+          emailRedirectTo: window.location.origin
+        }
       });
+
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success("Conta criada com sucesso! Você já pode fazer login.");
+        toast.success("Conta criada! Agora faça login.");
         setIsLogin(true);
       }
     }
+
     setSubmitting(false);
   };
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
 
   if (notFound || alreadyUsed || expired) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="flex min-h-screen items-center justify-center px-4">
         <Card className="w-full max-w-md text-center">
           <CardContent className="py-12">
-            <Scissors className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+            <Scissors className="mx-auto mb-4 h-12 w-12" />
             <h2 className="text-lg font-semibold">
               {notFound ? "Link inválido" : alreadyUsed ? "Convite já utilizado" : "Convite expirado"}
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {notFound
-                ? "Este link de convite não existe."
-                : alreadyUsed
-                ? "Este convite já foi aceito por outro usuário."
-                : "Este link de convite expirou. Solicite um novo ao dono do salão."}
-            </p>
           </CardContent>
         </Card>
       </div>
@@ -153,85 +177,52 @@ const TeamInvitePage = () => {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          {invite?.salon_logo_url ? (
-            <img
-              src={invite.salon_logo_url}
-              alt={invite.salon_name}
-              className="mx-auto mb-3 h-16 w-16 rounded-xl object-cover"
-            />
-          ) : (
-            <div
-              className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl text-primary-foreground"
-              style={{ backgroundColor: invite?.salon_primary_color || "hsl(var(--primary))" }}
-            >
-              <Scissors className="h-7 w-7" />
-            </div>
-          )}
-          <CardTitle className="text-xl">{invite?.salon_name}</CardTitle>
+          <CardTitle>{invite?.salon_name}</CardTitle>
           <CardDescription>
-            <span className="font-medium text-primary">{roleLabels[invite?.role ?? ""] ?? invite?.role}</span>
-            {" — "}
-            {isLogin ? "Entre na sua conta para aceitar o convite" : "Crie sua conta para entrar na equipe"}
+            {isLogin ? "Entre para aceitar o convite" : "Crie sua conta"}
           </CardDescription>
         </CardHeader>
+
         <CardContent>
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-muted/40 p-3">
-            <UserPlus className="h-4 w-4 text-primary shrink-0" />
-            <p className="text-sm text-muted-foreground">
-              Você foi convidado para fazer parte da equipe de{" "}
-              <strong>{invite?.salon_name}</strong> como{" "}
-              <strong>{roleLabels[invite?.role ?? ""] ?? invite?.role}</strong>.
-            </p>
-          </div>
           <form onSubmit={handleSubmit} className="space-y-4">
+
             {!isLogin && (
-              <div className="space-y-2">
-                <Label>Nome completo</Label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Seu nome"
-                  required
-                />
-              </div>
+              <Input
+                placeholder="Nome"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
             )}
-            <div className="space-y-2">
-              <Label>E-mail</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu@email.com"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Senha</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isLogin ? "Entrar e aceitar convite" : "Criar conta e aceitar convite"}
+
+            <Input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+
+            <Input
+              type="password"
+              placeholder="Senha"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+
+            <Button className="w-full" disabled={submitting}>
+              {submitting ? "Carregando..." : isLogin ? "Entrar" : "Criar conta"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
+
+          <p className="text-center mt-4 text-sm">
             {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="font-medium text-primary hover:underline"
-            >
-              {isLogin ? "Criar conta" : "Fazer login"}
+            <button onClick={() => setIsLogin(!isLogin)}>
+              {isLogin ? "Criar" : "Entrar"}
             </button>
           </p>
         </CardContent>
