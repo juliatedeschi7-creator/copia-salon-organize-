@@ -1,19 +1,21 @@
--- Add FK from charges.client_user_id -> profiles.user_id so that
--- PostgREST can resolve the join charges->profiles used in ContasPage.
+-- Add user access lifecycle columns to profiles table
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'charges_client_user_id_profiles_fkey'
-      AND conrelid = 'public.charges'::regclass
-  ) THEN
-    ALTER TABLE public.charges
-      ADD CONSTRAINT charges_client_user_id_profiles_fkey
-      FOREIGN KEY (client_user_id) REFERENCES public.profiles(user_id);
-  END IF;
-END
-$$;
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS access_state text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS access_message text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS notice_until timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS deleted_at timestamptz NULL;
+
+-- Add check constraint for allowed access_state values
+ALTER TABLE public.profiles
+  DROP CONSTRAINT IF EXISTS profiles_access_state_check;
+
+ALTER TABLE public.profiles
+  ADD CONSTRAINT profiles_access_state_check
+    CHECK (access_state IN ('active', 'notice', 'blocked'));
+
+-- Indexes for admin filtering
+CREATE INDEX IF NOT EXISTS idx_profiles_access_state ON public.profiles (access_state);
+CREATE INDEX IF NOT EXISTS idx_profiles_deleted_at ON public.profiles (deleted_at);
 
 NOTIFY pgrst, 'reload schema';
