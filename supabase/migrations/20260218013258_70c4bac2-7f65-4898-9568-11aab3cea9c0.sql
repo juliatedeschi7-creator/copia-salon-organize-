@@ -1,4 +1,8 @@
 
--- Add reminder_hours config to salons (array of integers representing hours before appointment)
-ALTER TABLE public.salons 
-ADD COLUMN IF NOT EXISTS reminder_hours jsonb DEFAULT '[24, 2]'::jsonb;
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+
+-- Grant usage
+GRANT USAGE ON SCHEMA cron TO postgres;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA cron TO postgres;
