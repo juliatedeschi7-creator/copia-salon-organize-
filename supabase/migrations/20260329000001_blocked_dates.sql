@@ -24,7 +24,7 @@ CREATE POLICY "Owner can manage blocked_dates"
 
 -- Staff (funcionario) can also manage blocked dates
 DROP POLICY IF EXISTS "Staff can manage blocked_dates" ON public.blocked_dates;
-CREATE POLICY "Staff can manage blocked_dates"
+CREATE POLICY "Staff can manageu blocked_dates"
   ON public.blocked_dates
   FOR ALL
   TO authenticated
