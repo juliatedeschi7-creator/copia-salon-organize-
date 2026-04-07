@@ -42,57 +42,75 @@ const TeamInvitePage = () => {
 
   useEffect(() => {
     const init = async () => {
-      if (!token) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
-
-      // 🔥 busca convite corretamente
-      const { data, error } = await supabase.rpc("get_team_invite_by_token", { _token: token });
-
-      if (error || !data || (data as any[]).length === 0) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
-
-      const inviteData = Array.isArray(data) ? data[0] : data;
-
-      if (inviteData.used_at) {
-        setAlreadyUsed(true);
-        setLoading(false);
-        return;
-      }
-
-      if (inviteData.expires_at && new Date(inviteData.expires_at) < new Date()) {
-        setExpired(true);
-        setLoading(false);
-        return;
-      }
-
-      setInvite(inviteData);
-
-      // 🔥 aceita automaticamente se já estiver logado
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        const result = await supabase.rpc("accept_team_invite", {
-          _token: token,
-          _user_id: session.user.id
-        });
-
-        if (result.data === "ok") {
-          toast.success("Convite aceito! 🎉");
-          navigate("/");
+      try {
+        if (!token) {
+          setNotFound(true);
           return;
         }
 
-        if (result.data === "already_used") setAlreadyUsed(true);
-        if (result.data === "expired") setExpired(true);
-      }
+        // 🔍 buscar convite
+        const { data, error } = await supabase.rpc("get_team_invite_by_token", {
+          _token: token,
+        });
 
-      setLoading(false);
+        console.log("INVITE DATA:", data);
+        console.log("INVITE ERROR:", error);
+
+        if (error || !data) {
+          setNotFound(true);
+          return;
+        }
+
+        const row = Array.isArray(data) ? data[0] : data;
+
+        if (!row) {
+          setNotFound(true);
+          return;
+        }
+
+        const info = row as InviteInfo;
+
+        // 🚫 já usado
+        if (info.used_at) {
+          setAlreadyUsed(true);
+          return;
+        }
+
+        // ⏰ expirado
+        if (info.expires_at && new Date(info.expires_at) < new Date()) {
+          setExpired(true);
+          return;
+        }
+
+        setInvite(info);
+
+        // 🔐 se já estiver logado → aceita direto
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          const result = await supabase.rpc("accept_team_invite", {
+            _token: token,
+            _user_id: session.user.id, // 🔥 IMPORTANTE
+          });
+
+          const status = result.data;
+
+          if (status === "ok") {
+            toast.success("Convite aceito! 🎉");
+            navigate("/");
+            return;
+          }
+
+          if (status === "already_used") setAlreadyUsed(true);
+          else if (status === "expired") setExpired(true);
+          else toast.error("Erro ao aceitar convite.");
+        }
+      } catch (err) {
+        console.error("Erro geral:", err);
+        setNotFound(true);
+      } finally {
+        setLoading(false);
+      }
     };
 
     init();
@@ -102,73 +120,79 @@ const TeamInvitePage = () => {
     e.preventDefault();
     setSubmitting(true);
 
-    if (!token) {
-      toast.error("Token inválido");
-      setSubmitting(false);
-      return;
-    }
+    try {
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
-    if (isLogin) {
-      // 🔥 login
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-      if (error) {
-        toast.error(error.message);
-        setSubmitting(false);
-        return;
-      }
-
-      const { data: { user } } = await supabase.auth.getUser();
-
-      const result = await supabase.rpc("accept_team_invite", {
-        _token: token,
-        _user_id: user?.id
-      });
-
-      if (result.data === "ok") {
-        toast.success("Convite aceito! 🎉");
-        navigate("/");
-      } else {
-        toast.error("Erro ao aceitar convite.");
-      }
-    } else {
-      // 🔥 cadastro
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name },
-          emailRedirectTo: window.location.origin
+        if (error) {
+          toast.error(error.message);
+          return;
         }
-      });
 
-      if (error) {
-        toast.error(error.message);
+        const { data: { user } } = await supabase.auth.getUser();
+
+        const result = await supabase.rpc("accept_team_invite", {
+          _token: token,
+          _user_id: user?.id,
+        });
+
+        if (result.data === "ok") {
+          toast.success("Convite aceito!");
+          navigate("/");
+        } else {
+          toast.error("Erro ao aceitar convite.");
+        }
       } else {
-        toast.success("Conta criada! Agora faça login.");
-        setIsLogin(true);
-      }
-    }
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              name,
+              salon_team_invite_token: token, // 🔥 importante pro backend
+            },
+          },
+        });
 
-    setSubmitting(false);
+        if (error) {
+          toast.error(error.message);
+        } else {
+          toast.success("Conta criada! Faça login.");
+          setIsLogin(true);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Erro inesperado.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  // ⏳ loading
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <Loader2 className="animate-spin" />
       </div>
     );
   }
 
+  // ❌ erros
   if (notFound || alreadyUsed || expired) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <Card className="w-full max-w-md text-center">
-          <CardContent className="py-12">
-            <Scissors className="mx-auto mb-4 h-12 w-12" />
-            <h2 className="text-lg font-semibold">
-              {notFound ? "Link inválido" : alreadyUsed ? "Convite já utilizado" : "Convite expirado"}
+      <div className="flex min-h-screen items-center justify-center">
+        <Card>
+          <CardContent className="p-6 text-center">
+            <h2>
+              {notFound
+                ? "Link inválido"
+                : alreadyUsed
+                ? "Convite já usado"
+                : "Convite expirado"}
             </h2>
           </CardContent>
         </Card>
@@ -176,19 +200,20 @@ const TeamInvitePage = () => {
     );
   }
 
+  // ✅ tela principal
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle>{invite?.salon_name}</CardTitle>
           <CardDescription>
-            {isLogin ? "Entre para aceitar o convite" : "Crie sua conta"}
+            Você foi convidado como{" "}
+            {roleLabels[invite?.role ?? ""] ?? invite?.role}
           </CardDescription>
         </CardHeader>
 
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-
             {!isLogin && (
               <Input
                 placeholder="Nome"
@@ -214,15 +239,14 @@ const TeamInvitePage = () => {
               required
             />
 
-            <Button className="w-full" disabled={submitting}>
-              {submitting ? "Carregando..." : isLogin ? "Entrar" : "Criar conta"}
+            <Button type="submit" disabled={submitting}>
+              {isLogin ? "Entrar" : "Criar conta"}
             </Button>
           </form>
 
           <p className="text-center mt-4 text-sm">
-            {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
             <button onClick={() => setIsLogin(!isLogin)}>
-              {isLogin ? "Criar" : "Entrar"}
+              {isLogin ? "Criar conta" : "Já tenho conta"}
             </button>
           </p>
         </CardContent>
