@@ -1,256 +1,137 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Loader2, Scissors, UserPlus } from "lucide-react";
-import { toast } from "sonner";
-
-interface InviteInfo {
-  id: string;
-  salon_id: string;
-  salon_name: string;
-  salon_logo_url: string | null;
-  salon_primary_color: string | null;
-  role: string;
-  expires_at: string | null;
-  used_at: string | null;
-}
-
-const roleLabels: Record<string, string> = {
-  dono: "Dono",
-  funcionario: "Funcionário",
-};
 
 const TeamInvitePage = () => {
-  const { token } = useParams<{ token: string }>();
+  const { token } = useParams();
   const navigate = useNavigate();
 
-  const [invite, setInvite] = useState<InviteInfo | null>(null);
+  const [invite, setInvite] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [alreadyUsed, setAlreadyUsed] = useState(false);
-  const [expired, setExpired] = useState(false);
 
-  const [isLogin, setIsLogin] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [isLogin, setIsLogin] = useState(false);
 
+  // 🔥 carregar convite
   useEffect(() => {
-    const init = async () => {
-      try {
-        if (!token) {
-          setNotFound(true);
-          return;
-        }
+    const loadInvite = async () => {
+      if (!token) return;
 
-        // 🔍 buscar convite
-        const { data, error } = await supabase.rpc("get_team_invite_by_token", {
-          _token: token,
-        });
+      const { data, error } = await supabase.rpc("get_team_invite_by_token", {
+        _token: token,
+      });
 
-        console.log("INVITE DATA:", data);
-        console.log("INVITE ERROR:", error);
-
-        if (error || !data) {
-          setNotFound(true);
-          return;
-        }
-
-        const row = Array.isArray(data) ? data[0] : data;
-
-        if (!row) {
-          setNotFound(true);
-          return;
-        }
-
-        const info = row as InviteInfo;
-
-        // 🚫 já usado
-        if (info.used_at) {
-          setAlreadyUsed(true);
-          return;
-        }
-
-        // ⏰ expirado
-        if (info.expires_at && new Date(info.expires_at) < new Date()) {
-          setExpired(true);
-          return;
-        }
-
-        setInvite(info);
-
-        // 🔐 se já estiver logado → aceita direto
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (session?.user) {
-          const result = await supabase.rpc("accept_team_invite", {
-            _token: token,
-            _user_id: session.user.id, // 🔥 IMPORTANTE
-          });
-
-          const status = result.data;
-
-          if (status === "ok") {
-            toast.success("Convite aceito! 🎉");
-            navigate("/");
-            return;
-          }
-
-          if (status === "already_used") setAlreadyUsed(true);
-          else if (status === "expired") setExpired(true);
-          else toast.error("Erro ao aceitar convite.");
-        }
-      } catch (err) {
-        console.error("Erro geral:", err);
-        setNotFound(true);
-      } finally {
-        setLoading(false);
+      if (error || !data || data.length === 0) {
+        setInvite(null);
+      } else {
+        setInvite(data[0]);
       }
+
+      setLoading(false);
     };
 
-    init();
-  }, [token, navigate]);
+    loadInvite();
+  }, [token]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
+  // 🔥 aceitar convite
+  const acceptInvite = async (userId: string) => {
+    const { data } = await supabase.rpc("accept_team_invite", {
+      _token: token,
+      _user_id: userId,
+    });
 
-    try {
-      if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (error) {
-          toast.error(error.message);
-          return;
-        }
-
-        const { data: { user } } = await supabase.auth.getUser();
-
-        const result = await supabase.rpc("accept_team_invite", {
-          _token: token,
-          _user_id: user?.id,
-        });
-
-        if (result.data === "ok") {
-          toast.success("Convite aceito!");
-          navigate("/");
-        } else {
-          toast.error("Erro ao aceitar convite.");
-        }
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              name,
-              salon_team_invite_token: token, // 🔥 importante pro backend
-            },
-          },
-        });
-
-        if (error) {
-          toast.error(error.message);
-        } else {
-          toast.success("Conta criada! Faça login.");
-          setIsLogin(true);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Erro inesperado.");
-    } finally {
-      setSubmitting(false);
+    if (data === "ok") {
+      alert("Convite aceito! Aguarde aprovação do admin.");
+      navigate("/");
+    } else {
+      alert("Erro ao aceitar convite");
     }
   };
 
-  // ⏳ loading
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
+  // 🔥 login / cadastro
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+
+    if (isLogin) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      await acceptInvite(data.user.id);
+    } else {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      // ⚠️ usuário precisa confirmar email às vezes
+      if (data.user) {
+        await acceptInvite(data.user.id);
+      } else {
+        alert("Conta criada! Faça login para continuar.");
+        setIsLogin(true);
+      }
+    }
+  };
+
+  if (loading) return <p>Carregando...</p>;
+
+  if (!invite) {
+    return <p>Link inválido ou expirado</p>;
   }
 
-  // ❌ erros
-  if (notFound || alreadyUsed || expired) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Card>
-          <CardContent className="p-6 text-center">
-            <h2>
-              {notFound
-                ? "Link inválido"
-                : alreadyUsed
-                ? "Convite já usado"
-                : "Convite expirado"}
-            </h2>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ✅ tela principal
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle>{invite?.salon_name}</CardTitle>
-          <CardDescription>
-            Você foi convidado como{" "}
-            {roleLabels[invite?.role ?? ""] ?? invite?.role}
-          </CardDescription>
-        </CardHeader>
+    <div style={{ padding: 20 }}>
+      <h2>Convite para equipe</h2>
 
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
-              <Input
-                placeholder="Nome"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            )}
+      <p>
+        Você foi convidado para o salão <b>{invite.salon_name}</b> como{" "}
+        <b>{invite.role}</b>
+      </p>
 
-            <Input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+      <form onSubmit={handleSubmit}>
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
 
-            <Input
-              type="password"
-              placeholder="Senha"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+        <br /><br />
 
-            <Button type="submit" disabled={submitting}>
-              {isLogin ? "Entrar" : "Criar conta"}
-            </Button>
-          </form>
+        <input
+          type="password"
+          placeholder="Senha"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
 
-          <p className="text-center mt-4 text-sm">
-            <button onClick={() => setIsLogin(!isLogin)}>
-              {isLogin ? "Criar conta" : "Já tenho conta"}
-            </button>
-          </p>
-        </CardContent>
-      </Card>
+        <br /><br />
+
+        <button type="submit">
+          {isLogin ? "Entrar e aceitar convite" : "Criar conta"}
+        </button>
+      </form>
+
+      <br />
+
+      <button onClick={() => setIsLogin(!isLogin)}>
+        {isLogin ? "Criar conta" : "Já tenho conta"}
+      </button>
     </div>
   );
 };
