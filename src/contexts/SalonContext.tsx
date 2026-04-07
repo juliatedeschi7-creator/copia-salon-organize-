@@ -40,13 +40,20 @@ const SalonContext = createContext<SalonContextType>({
 export const useSalon = () => useContext(SalonContext);
 
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, role, isAuthenticated } = useAuth();
   const [salon, setSalon] = useState<Salon | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // ✅ Busca salão apenas se houver usuário autenticado
   const fetchSalon = useCallback(async () => {
-    if (!isAuthenticated || !user?.id) {
+    // Default: stop spinner fast if we cannot/should not fetch a salon
+    if (!isAuthenticated || !user) {
+      setSalon(null);
+      setIsLoading(false);
+      return;
+    }
+
+    // Only dono/funcionario are tied to a salon via salon_members
+    if (role !== "dono" && role !== "funcionario") {
       setSalon(null);
       setIsLoading(false);
       return;
@@ -59,9 +66,14 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         .from("salon_members")
         .select("salon_id")
         .eq("user_id", user.id)
+        .limit(1)
         .maybeSingle();
 
-      if (membershipErr) throw membershipErr;
+      if (membershipErr) {
+        console.error("❌ Error fetching salon membership:", membershipErr);
+        setSalon(null);
+        return;
+      }
 
       if (!membership?.salon_id) {
         setSalon(null);
@@ -74,82 +86,65 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         .eq("id", membership.salon_id)
         .maybeSingle();
 
-      if (salonErr) throw salonErr;
+      if (salonErr) {
+        console.error("❌ Error fetching salon:", salonErr);
+        setSalon(null);
+        return;
+      }
 
-      setSalon(salonData ?? null);
-    } catch (e: any) {
-      console.error("❌ Erro ao buscar salão:", e);
-      toast.error("Erro ao carregar dados do salão");
+      setSalon((salonData ?? null) as Salon | null);
+    } catch (e) {
+      console.error("❌ Error fetching salon:", e);
       setSalon(null);
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id, role]);
 
   useEffect(() => {
     fetchSalon();
   }, [fetchSalon]);
 
   const createSalon = async (name: string) => {
-    if (!user?.id) {
-      toast.error("Aguarde um momento e tente novamente");
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("salons")
+      .insert({ name, owner_id: user.id })
+      .select()
+      .single();
+
+    if (error) {
+      toast.error("Erro ao criar salão: " + error.message);
       return;
     }
 
-    try {
-      const { data: salonRow, error: salonErr } = await supabase
-        .from("salons")
-        .insert({ name, owner_id: user.id })
-        .select("*")
-        .single();
+    await supabase.from("salon_members").insert({
+      salon_id: data.id,
+      user_id: user.id,
+      role: "dono",
+    });
 
-      if (salonErr || !salonRow) {
-        toast.error("Erro ao criar salão: " + salonErr?.message);
-        return;
-      }
-
-      await supabase.from("salon_members").insert({
-        salon_id: salonRow.id,
-        user_id: user.id,
-        role: "dono",
-      });
-
-      setSalon(salonRow as Salon);
-      toast.success("Salão criado com sucesso!");
-    } catch (e: any) {
-      console.error("❌ Erro inesperado ao criar salão:", e);
-      toast.error("Erro: " + (e?.message || JSON.stringify(e)));
-    }
+    setSalon(data as Salon);
+    toast.success("Salão criado com sucesso!");
   };
 
   const updateSalon = async (updates: Partial<Salon>) => {
     if (!salon) return;
 
-    const { error } = await supabase
-      .from("salons")
-      .update(updates)
-      .eq("id", salon.id);
+    const { error } = await supabase.from("salons").update(updates).eq("id", salon.id);
 
     if (error) {
-      console.error("❌ Update error:", error);
-      toast.error("Erro ao atualizar");
+      toast.error("Erro ao salvar: " + error.message);
       return;
     }
 
     setSalon((prev) => (prev ? { ...prev, ...updates } : prev));
-    toast.success("Atualizado com sucesso!");
+    toast.success("Configurações salvas!");
   };
 
   return (
-    <SalonContext.Provider
-      value={{
-        salon,
-        isLoading,
-        createSalon,
-        updateSalon,
-        refetch: fetchSalon,
-      }}
-    >
+    <SalonContext.Provider value={{ salon, isLoading, createSalon, updateSalon, refetch: fetchSalon }}>
       {children}
     </SalonContext.Provider>
   );
