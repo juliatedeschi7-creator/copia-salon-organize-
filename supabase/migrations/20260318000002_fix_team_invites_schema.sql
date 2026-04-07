@@ -208,4 +208,3 @@ $$;
 
 -- 11. Notify PostgREST to reload schema cache immediately
 NOTIFY pgrst, 'reload schema';
-
