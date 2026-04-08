@@ -35,10 +35,20 @@ import { Loader2 } from "lucide-react";
 const queryClient = new QueryClient();
 
 const AppRoutes = () => {
-  const { isAuthenticated, isApproved, isLoading, role, profile, profileLoaded, profileError, profileDiagnostic } = useAuth();
+  const {
+    isAuthenticated,
+    isApproved,
+    isLoading,
+    role,
+    profile,
+    profileLoaded,
+    profileError,
+  } = useAuth();
+
   const { salon, isLoading: salonLoading } = useSalon();
 
-  if (!profileError && (isLoading || (isAuthenticated && (salonLoading || !profileLoaded)))) {
+  // ✅ FIX 1 — loading simplificado (remove loop)
+  if (isLoading || (isAuthenticated && !profileLoaded)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -46,7 +56,7 @@ const AppRoutes = () => {
     );
   }
 
-  // Não logado
+  // 🔓 NÃO LOGADO
   if (!isAuthenticated) {
     return (
       <Routes>
@@ -57,26 +67,26 @@ const AppRoutes = () => {
     );
   }
 
-  // Session/storage error: profile could not be loaded (e.g. Safari ITP / stale
-  // token). Show a clear error instead of "Aguardando aprovação" which is
-  // misleading — the user IS approved but the session failed.
-  if (profileError) {
+  // ❌ ERRO REAL de perfil (não loading falso)
+  if (profileError && !profileLoaded) {
     return (
       <Routes>
-        <Route path="*" element={
-          <BlockedAccessPage
-            title="Erro ao carregar perfil"
-            description="Não foi possível carregar os dados do seu perfil. Isso pode ser um problema de sessão ou conexão."
-            message="Saia da conta e entre novamente. Se o problema persistir, tente limpar os dados do navegador para este site."
-            diagnostic={profileDiagnostic}
-          />
-        } />
+        <Route
+          path="*"
+          element={
+            <BlockedAccessPage
+              title="Erro ao carregar perfil"
+              description="Não foi possível carregar os dados do seu perfil."
+              message="Tente sair e entrar novamente."
+            />
+          }
+        />
       </Routes>
     );
   }
 
-  // Só bloqueia se NÃO for aprovado E NÃO for admin
-  if (!isApproved && role !== "admin") {
+  // ⏳ AGUARDANDO APROVAÇÃO (CORRIGIDO)
+  if (profileLoaded && !isApproved && role !== "admin") {
     return (
       <Routes>
         <Route path="/convite/:linkId" element={<ClientInvitePage />} />
@@ -86,46 +96,45 @@ const AppRoutes = () => {
     );
   }
 
-  // Conta excluída (soft delete) - não admin
+  // 🚫 CONTA DESATIVADA
   if (profile?.deleted_at && role !== "admin") {
     return (
       <Routes>
-        <Route path="*" element={
-          <BlockedAccessPage
-            title="Conta desativada"
-            description="Sua conta foi desativada pelo administrador."
-            message={profile.access_message || undefined}
-          />
-        } />
+        <Route
+          path="*"
+          element={
+            <BlockedAccessPage
+              title="Conta desativada"
+              description="Sua conta foi desativada pelo administrador."
+            />
+          }
+        />
       </Routes>
     );
   }
 
-  // Acesso bloqueado - não admin
+  // 🚫 BLOQUEIO
   if (role !== "admin") {
     const isBlocked = profile?.access_state === "blocked";
-    const isNoticeExpired =
-      profile?.access_state === "notice" &&
-      profile?.notice_until !== null &&
-      profile?.notice_until !== undefined &&
-      new Date(profile.notice_until) < new Date();
 
-    if (isBlocked || isNoticeExpired) {
+    if (isBlocked) {
       return (
         <Routes>
-          <Route path="*" element={
-            <BlockedAccessPage
-              title="Acesso bloqueado"
-              description="Seu acesso ao sistema foi bloqueado pelo administrador."
-              message={profile?.access_message || undefined}
-            />
-          } />
+          <Route
+            path="*"
+            element={
+              <BlockedAccessPage
+                title="Acesso bloqueado"
+                description="Seu acesso foi bloqueado."
+              />
+            }
+          />
         </Routes>
       );
     }
   }
 
-  // Dono sem salão
+  // 🏪 DONO SEM SALÃO
   if (role === "dono" && !salon) {
     return (
       <Routes>
@@ -136,6 +145,7 @@ const AppRoutes = () => {
     );
   }
 
+  // ✅ APP NORMAL
   return (
     <Routes>
       <Route path="/convite/:linkId" element={<ClientInvitePage />} />
@@ -154,9 +164,9 @@ const AppRoutes = () => {
         <Route path="/configuracoes" element={<SettingsPage />} />
         <Route path="/notificacoes" element={<NotificationsPage />} />
         <Route path="/admin" element={<AdminPage />} />
-        <Route 
-          path="/minha-agenda" 
-          element={role === "cliente" ? <ClientSchedulePage /> : <MySchedulePage />} 
+        <Route
+          path="/minha-agenda"
+          element={role === "cliente" ? <ClientSchedulePage /> : <MySchedulePage />}
         />
         <Route path="/servicos-catalogo" element={<ServicesShowcasePage />} />
         <Route path="/cliente-area" element={<ClientAreaPage />} />
