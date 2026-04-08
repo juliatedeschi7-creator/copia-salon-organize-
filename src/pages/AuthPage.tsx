@@ -1,143 +1,102 @@
-import React, { useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Scissors, Loader2 } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
-import { toast } from "sonner";
 
-const AuthPage = () => {
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [rememberMe, setRememberMe] = useState(true);
-  const [loading, setLoading] = useState(false);
+type Role = "admin" | "dono" | "funcionario" | "cliente" | null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+interface AuthContextType {
+  user: any;
+  profile: any;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  profileLoaded: boolean;
+  profileError: boolean;
+  isApproved: boolean;
+  role: Role;
+}
 
-    if (isLogin) {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        toast.error(error.message);
-      } else if (!rememberMe) {
-        // Move the Supabase auth token from localStorage to sessionStorage so
-        // the session is not persisted across browser restarts. Wrapped in
-        // try/catch because storage access can be blocked on Safari/ITP.
-        try {
-          const key = Object.keys(localStorage).find(
-            (k) => k.startsWith("sb-") && k.endsWith("-auth-token"),
-          );
-          if (key) {
-            const value = localStorage.getItem(key);
-            if (value !== null) {
-              sessionStorage.setItem(key, value);
-            }
-            localStorage.removeItem(key);
-          }
-        } catch {
-          // Storage access may be blocked (e.g. Safari ITP) — ignore.
-        }
+const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [profileError, setProfileError] = useState(false);
+
+  useEffect(() => {
+    const init = async () => {
+      setIsLoading(true);
+
+      const { data } = await supabase.auth.getSession();
+      const session = data.session;
+
+      if (!session?.user) {
+        setUser(null);
+        setProfile(null);
+        setIsLoading(false);
+        setProfileLoaded(true);
+        return;
       }
-    } else {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name },
-          emailRedirectTo: window.location.origin,
-        },
-      });
-      if (error) {
-        toast.error(error.message);
-      } else {
-        toast.success("Conta criada! Verifique seu e-mail para confirmar.");
+
+      const currentUser = session.user;
+      setUser(currentUser);
+
+      // 🔥 buscar profile corretamente
+      const { data: profileData, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", currentUser.id)
+        .maybeSingle();
+
+      if (error || !profileData) {
+        console.error("Erro ao carregar profile:", error);
+        setProfile(null);
+        setProfileError(true);
+        setProfileLoaded(true);
+        setIsLoading(false);
+        return;
       }
-    }
-    setLoading(false);
-  };
+
+      setProfile(profileData);
+      setProfileError(false);
+      setProfileLoaded(true);
+      setIsLoading(false);
+    };
+
+    init();
+
+    // 🔄 escuta login/logout
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+      init();
+    });
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  // ✅ ROLE
+  const role: Role = profile?.role ?? null;
+
+  // ✅ APROVAÇÃO CORRETA (ESSA É A CHAVE)
+  const isApproved = profile?.status === "approved";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Scissors className="h-7 w-7" />
-          </div>
-          <CardTitle className="text-xl">Espaço Maria Magnólia</CardTitle>
-          <CardDescription>
-            {isLogin ? "Entre na sua conta" : "Crie sua conta"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
-              <div className="space-y-2">
-                <Label>Nome completo</Label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Seu nome"
-                  required
-                />
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label>E-mail</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu@email.com"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Senha</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-              />
-            </div>
-            {isLogin && (
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="rememberMe"
-                  checked={rememberMe}
-                  onCheckedChange={(checked) => setRememberMe(checked === true)}
-                />
-                <Label htmlFor="rememberMe" className="text-sm font-normal cursor-pointer">
-                  Manter-me conectado
-                </Label>
-              </div>
-            )}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isLogin ? "Entrar" : "Criar conta"}
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="font-medium text-primary hover:underline"
-            >
-              {isLogin ? "Criar conta" : "Fazer login"}
-            </button>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        isAuthenticated: !!user,
+        isLoading,
+        profileLoaded,
+        profileError,
+        isApproved,
+        role,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
   );
 };
 
-export default AuthPage;
+export const useAuth = () => useContext(AuthContext);
