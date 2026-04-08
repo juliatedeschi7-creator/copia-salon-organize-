@@ -1,137 +1,213 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Loader2, Scissors } from "lucide-react";
+import { toast } from "sonner";
+
+interface InviteInfo {
+  salon_name: string;
+  salon_logo_url: string | null;
+  salon_primary_color: string | null;
+  role: string;
+}
+
+const roleLabels: Record<string, string> = {
+  dono: "Dono",
+  funcionario: "Funcionário",
+};
 
 const TeamInvitePage = () => {
   const { token } = useParams();
   const navigate = useNavigate();
 
-  const [invite, setInvite] = useState<any>(null);
+  const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [isLogin, setIsLogin] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isLogin, setIsLogin] = useState(false);
+  const [name, setName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  // 🔥 carregar convite
   useEffect(() => {
     const loadInvite = async () => {
-      if (!token) return;
+      const { data, error } = await supabase.rpc(
+        "get_team_invite_by_token",
+        { _token: token }
+      );
 
-      const { data, error } = await supabase.rpc("get_team_invite_by_token", {
-        _token: token,
-      });
-
-      if (error || !data || data.length === 0) {
-        setInvite(null);
-      } else {
-        setInvite(data[0]);
+      if (error || !data) {
+        toast.error("Convite inválido");
+        setLoading(false);
+        return;
       }
 
+      setInvite(data);
       setLoading(false);
     };
 
     loadInvite();
   }, [token]);
 
-  // 🔥 aceitar convite
-  const acceptInvite = async (userId: string) => {
-    const { data } = await supabase.rpc("accept_team_invite", {
-      _token: token,
-      _user_id: userId,
-    });
-
-    if (data === "ok") {
-      alert("Convite aceito! Aguarde aprovação do admin.");
-      navigate("/");
-    } else {
-      alert("Erro ao aceitar convite");
-    }
-  };
-
-  // 🔥 login / cadastro
   const handleSubmit = async (e: any) => {
     e.preventDefault();
+    setSubmitting(true);
 
     if (isLogin) {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
-        alert(error.message);
+        toast.error(error.message);
+        setSubmitting(false);
         return;
       }
 
-      await acceptInvite(data.user.id);
+      toast.success("Entrando...");
+      navigate("/");
     } else {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            full_name: name,
+            role: invite?.role,
+            status: "pending", // 🔥 garante que vai pro admin
+          },
+        },
       });
 
       if (error) {
-        alert(error.message);
-        return;
-      }
-
-      // ⚠️ usuário precisa confirmar email às vezes
-      if (data.user) {
-        await acceptInvite(data.user.id);
+        toast.error(error.message);
       } else {
-        alert("Conta criada! Faça login para continuar.");
+        toast.success("Conta criada! Aguarde aprovação.");
         setIsLogin(true);
       }
     }
+
+    setSubmitting(false);
   };
 
-  if (loading) return <p>Carregando...</p>;
-
-  if (!invite) {
-    return <p>Link inválido ou expirado</p>;
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="animate-spin" />
+      </div>
+    );
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Convite para equipe</h2>
+    <div
+      className="flex min-h-screen items-center justify-center px-4"
+      style={{
+        background: `linear-gradient(135deg, ${
+          invite?.salon_primary_color || "#000"
+        }20, #ffffff)`,
+      }}
+    >
+      <Card className="w-full max-w-md shadow-2xl border-0">
+        <CardHeader className="text-center space-y-3">
+          {invite?.salon_logo_url ? (
+            <img
+              src={invite.salon_logo_url}
+              className="h-16 w-16 mx-auto rounded-xl object-cover"
+            />
+          ) : (
+            <div
+              className="h-16 w-16 mx-auto flex items-center justify-center rounded-xl text-white"
+              style={{
+                backgroundColor:
+                  invite?.salon_primary_color || "#000",
+              }}
+            >
+              <Scissors />
+            </div>
+          )}
 
-      <p>
-        Você foi convidado para o salão <b>{invite.salon_name}</b> como{" "}
-        <b>{invite.role}</b>
-      </p>
+          <CardTitle className="text-2xl font-bold">
+            {invite?.salon_name}
+          </CardTitle>
 
-      <form onSubmit={handleSubmit}>
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+          <CardDescription>
+            Você foi convidado como{" "}
+            <strong>
+              {roleLabels[invite?.role ?? ""] || invite?.role}
+            </strong>
+          </CardDescription>
+        </CardHeader>
 
-        <br /><br />
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {!isLogin && (
+              <div>
+                <Label>Nome</Label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+            )}
 
-        <input
-          type="password"
-          placeholder="Senha"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+            <div>
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
 
-        <br /><br />
+            <div>
+              <Label>Senha</Label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
 
-        <button type="submit">
-          {isLogin ? "Entrar e aceitar convite" : "Criar conta"}
-        </button>
-      </form>
+            <Button
+              className="w-full text-white"
+              style={{
+                backgroundColor:
+                  invite?.salon_primary_color || "#000",
+              }}
+              disabled={submitting}
+            >
+              {submitting && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              {isLogin ? "Entrar" : "Criar conta"}
+            </Button>
+          </form>
 
-      <br />
-
-      <button onClick={() => setIsLogin(!isLogin)}>
-        {isLogin ? "Criar conta" : "Já tenho conta"}
-      </button>
+          <p className="text-center text-sm mt-4">
+            {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
+            <button
+              onClick={() => setIsLogin(!isLogin)}
+              className="font-semibold underline"
+            >
+              {isLogin ? "Criar conta" : "Entrar"}
+            </button>
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 };
