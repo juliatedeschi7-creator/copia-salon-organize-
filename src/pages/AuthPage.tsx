@@ -1,129 +1,88 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
 
 const AuthPage = () => {
-  const [isLogin, setIsLogin] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const { salonId } = useParams();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
+  const [salonName, setSalonName] = useState("");
+  const [loadingSalon, setLoadingSalon] = useState(true);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    if (isLogin) {
-      // 🔐 LOGIN
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        toast.error(error.message);
-        setLoading(false);
+  useEffect(() => {
+    const loadSalon = async () => {
+      if (!salonId) {
+        setLoadingSalon(false);
         return;
       }
 
-      toast.success("Login realizado com sucesso!");
-    } else {
-      // 🆕 CADASTRO
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: name,
-          },
-        },
-      });
+      const { data } = await supabase
+        .from("salons")
+        .select("name")
+        .eq("id", salonId)
+        .single();
 
-      if (error) {
-        toast.error(error.message);
-        setLoading(false);
-        return;
+      if (data) {
+        setSalonName(data.name);
       }
 
-      toast.success("Conta criada! Agora faça login.");
-      setIsLogin(true);
-    }
+      setLoadingSalon(false);
+    };
 
-    setLoading(false);
-  };
+    loadSalon();
+  }, [salonId]);
+
+  if (loadingSalon) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-pink-600" />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-center">
-            {isLogin ? "Entrar" : "Criar conta"}
-          </CardTitle>
-        </CardHeader>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-pink-100 to-white px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 space-y-6">
 
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
-              <div className="space-y-2">
-                <Label>Nome</Label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Seu nome"
-                  required
-                />
-              </div>
-            )}
+        {/* 🔥 SALÃO */}
+        {salonName && (
+          <div className="text-center">
+            <p className="text-sm text-gray-500">Bem-vindo ao</p>
+            <h1 className="text-2xl font-bold text-pink-600">
+              {salonName}
+            </h1>
+          </div>
+        )}
 
-            <div className="space-y-2">
-              <Label>E-mail</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu@email.com"
-                required
-              />
-            </div>
+        <h2 className="text-xl font-semibold text-center">
+          Entrar
+        </h2>
 
-            <div className="space-y-2">
-              <Label>Senha</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-              />
-            </div>
+        <div className="space-y-3">
+          <input
+            type="email"
+            placeholder="E-mail"
+            className="w-full border rounded-lg px-4 py-3"
+          />
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {isLogin ? "Entrar" : "Criar conta"}
-            </Button>
-          </form>
+          <input
+            type="password"
+            placeholder="Senha"
+            className="w-full border rounded-lg px-4 py-3"
+          />
+        </div>
 
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-primary font-medium hover:underline"
-            >
-              {isLogin ? "Criar conta" : "Fazer login"}
-            </button>
-          </p>
-        </CardContent>
-      </Card>
+        <button className="w-full bg-pink-600 text-white py-3 rounded-lg font-semibold hover:bg-pink-700 transition">
+          Entrar
+        </button>
+
+        <p className="text-center text-sm">
+          Não tem conta?{" "}
+          <span className="text-pink-600 font-medium cursor-pointer">
+            Criar conta
+          </span>
+        </p>
+      </div>
     </div>
   );
 };
