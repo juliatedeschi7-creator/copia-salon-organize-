@@ -6,7 +6,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,8 +21,8 @@ interface InviteInfo {
 }
 
 const roleLabels: Record<string, string> = {
-  dono: "Dono",
-  funcionario: "Funcionário",
+  dono: "dono",
+  funcionario: "funcionário",
 };
 
 const TeamInvitePage = () => {
@@ -75,7 +74,6 @@ const TeamInvitePage = () => {
         return;
       }
 
-      toast.success("Entrando...");
       navigate("/");
     } else {
       const { error } = await supabase.auth.signUp({
@@ -85,7 +83,7 @@ const TeamInvitePage = () => {
           data: {
             full_name: name,
             role: invite?.role,
-            status: "pending", // 🔥 garante que vai pro admin
+            status: "pending", // 🔥 ESSENCIAL pro admin aprovar
           },
         },
       });
@@ -93,7 +91,7 @@ const TeamInvitePage = () => {
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success("Conta criada! Aguarde aprovação.");
+        toast.success("Conta criada! Aguarde aprovação do administrador.");
         setIsLogin(true);
       }
     }
@@ -109,17 +107,17 @@ const TeamInvitePage = () => {
     );
   }
 
+  const primary = invite?.salon_primary_color || "#c0365d";
+
   return (
     <div
       className="flex min-h-screen items-center justify-center px-4"
       style={{
-        background: `linear-gradient(135deg, ${
-          invite?.salon_primary_color || "#000"
-        }20, #ffffff)`,
+        background: `linear-gradient(135deg, ${primary}20, #ffffff)`,
       }}
     >
-      <Card className="w-full max-w-md shadow-2xl border-0">
-        <CardHeader className="text-center space-y-3">
+      <Card className="w-full max-w-md shadow-xl border-0">
+        <CardHeader className="text-center space-y-4">
           {invite?.salon_logo_url ? (
             <img
               src={invite.salon_logo_url}
@@ -128,32 +126,36 @@ const TeamInvitePage = () => {
           ) : (
             <div
               className="h-16 w-16 mx-auto flex items-center justify-center rounded-xl text-white"
-              style={{
-                backgroundColor:
-                  invite?.salon_primary_color || "#000",
-              }}
+              style={{ backgroundColor: primary }}
             >
               <Scissors />
             </div>
           )}
 
-          <CardTitle className="text-2xl font-bold">
-            {invite?.salon_name}
-          </CardTitle>
-
-          <CardDescription>
-            Você foi convidado como{" "}
-            <strong>
+          <CardTitle className="text-xl font-bold leading-snug">
+            Você foi convidado para ser{" "}
+            <span style={{ color: primary }}>
               {roleLabels[invite?.role ?? ""] || invite?.role}
-            </strong>
-          </CardDescription>
+            </span>{" "}
+            no{" "}
+            <span className="font-semibold">
+              {invite?.salon_name}
+            </span>
+            .
+            <br />
+            Aceita?
+          </CardTitle>
         </CardHeader>
 
         <CardContent>
+          <p className="text-center text-sm text-muted-foreground mb-4">
+            Crie sua conta para entrar na equipe
+          </p>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <div>
-                <Label>Nome</Label>
+                <Label>Nome completo</Label>
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -184,10 +186,7 @@ const TeamInvitePage = () => {
 
             <Button
               className="w-full text-white"
-              style={{
-                backgroundColor:
-                  invite?.salon_primary_color || "#000",
-              }}
+              style={{ backgroundColor: primary }}
               disabled={submitting}
             >
               {submitting && (
