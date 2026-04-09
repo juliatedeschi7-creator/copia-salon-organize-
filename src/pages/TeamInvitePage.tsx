@@ -1,227 +1,78 @@
-import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Loader2, Scissors } from "lucide-react";
-import { toast } from "sonner";
-
-interface InviteInfo {
-  salon_name: string;
-  salon_logo_url: string | null;
-  salon_primary_color: string | null;
-  role: string;
-}
+import { Loader2 } from "lucide-react";
 
 const TeamInvitePage = () => {
   const { token } = useParams();
-  const navigate = useNavigate();
-
-  const [invite, setInvite] = useState<InviteInfo | null>(null);
+  const [invite, setInvite] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  const [isLogin, setIsLogin] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  // 🔥 LOAD INVITE CORRETO
   useEffect(() => {
     const loadInvite = async () => {
       if (!token) return;
 
-      const { data, error } = await supabase.rpc(
-        "get_team_invite_by_token",
-        { _token: token }
-      );
+      const { data, error } = await supabase
+        .rpc("get_team_invite_by_token", { _token: token });
 
-      console.log("INVITE DATA:", data);
-
-      if (error || !data) {
-        toast.error("Convite inválido");
+      if (error || !data || data.length === 0) {
+        setError(true);
         setLoading(false);
         return;
       }
 
-      const inviteData = Array.isArray(data) ? data[0] : data;
-
-      setInvite(inviteData);
+      setInvite(data[0]);
       setLoading(false);
     };
 
     loadInvite();
   }, [token]);
 
-  const handleSubmit = async (e: any) => {
-    e.preventDefault();
-    setSubmitting(true);
-
-    // 🔐 LOGIN
-    if (isLogin) {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        toast.error(error.message);
-        setSubmitting(false);
-        return;
-      }
-
-      toast.success("Entrou com sucesso!");
-      navigate("/");
-    }
-
-    // 🆕 SIGNUP (VAI PARA PENDENTE)
-    else {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: name,
-            role: invite?.role,
-            status: "pending",
-          },
-        },
-      });
-
-      if (error) {
-        toast.error(error.message);
-      } else {
-        toast.success("Conta criada! Aguarde aprovação do administrador.");
-        setIsLogin(true);
-      }
-    }
-
-    setSubmitting(false);
-  };
-
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="animate-spin" />
+        <Loader2 className="h-8 w-8 animate-spin text-pink-600" />
       </div>
     );
   }
 
-  const primary = invite?.salon_primary_color || "#c0365d";
+  if (error || !invite) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-red-500 font-semibold">Convite inválido</p>
+      </div>
+    );
+  }
 
-  const roleLabel =
-    invite?.role === "dono"
-      ? "dono"
-      : invite?.role === "funcionario"
-      ? "funcionário"
-      : "membro da equipe";
+  const roleText = invite.role === "dono" ? "dono" : "funcionário";
 
   return (
-    <div
-      className="flex min-h-screen items-center justify-center px-4"
-      style={{
-        background: `linear-gradient(135deg, ${primary}20, #ffffff)`,
-      }}
-    >
-      <Card className="w-full max-w-md shadow-xl border-0">
-        <CardHeader className="text-center space-y-4">
-          {invite?.salon_logo_url ? (
-            <img
-              src={invite.salon_logo_url}
-              className="h-16 w-16 mx-auto rounded-xl object-cover"
-            />
-          ) : (
-            <div
-              className="h-16 w-16 mx-auto flex items-center justify-center rounded-xl text-white"
-              style={{ backgroundColor: primary }}
-            >
-              <Scissors />
-            </div>
-          )}
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-pink-100 to-white px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-6 space-y-6 text-center">
+        
+        <h1 className="text-2xl font-bold text-gray-800">
+          Você foi convidado para ser{" "}
+          <span className="text-pink-600">{roleText}</span>
+        </h1>
 
-          {/* 🔥 TEXTO FINAL CORRETO */}
-          <CardTitle className="text-xl font-bold leading-snug">
-            Você foi convidado para ser{" "}
-            <span style={{ color: primary }}>{roleLabel}</span>{" "}
-            no{" "}
-            <span className="font-semibold">
-              {invite?.salon_name || "salão"}
-            </span>
-            .
-            <br />
-            Aceita?
-          </CardTitle>
-        </CardHeader>
+        <p className="text-gray-600">
+          no salão{" "}
+          <span className="font-semibold text-gray-800">
+            {invite.salon_name}
+          </span>
+        </p>
 
-        <CardContent>
-          <p className="text-center text-sm text-muted-foreground mb-4">
-            {isLogin
-              ? "Entre para aceitar o convite"
-              : "Crie sua conta para entrar na equipe"}
-          </p>
+        <div className="pt-4">
+          <a
+            href="/"
+            className="block w-full rounded-xl bg-pink-600 text-white py-3 font-semibold hover:bg-pink-700 transition"
+          >
+            Criar conta / Entrar
+          </a>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {!isLogin && (
-              <div>
-                <Label>Nome completo</Label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
-            )}
-
-            <div>
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-
-            <div>
-              <Label>Senha</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <Button
-              className="w-full text-white"
-              style={{ backgroundColor: primary }}
-              disabled={submitting}
-            >
-              {submitting && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {isLogin ? "Entrar" : "Criar conta"}
-            </Button>
-          </form>
-
-          <p className="text-center text-sm mt-4">
-            {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
-            <button
-              onClick={() => setIsLogin(!isLogin)}
-              className="font-semibold underline"
-            >
-              {isLogin ? "Criar conta" : "Entrar"}
-            </button>
-          </p>
-        </CardContent>
-      </Card>
+      </div>
     </div>
   );
 };
