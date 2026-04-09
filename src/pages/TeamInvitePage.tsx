@@ -131,20 +131,26 @@ const TeamInvitePage = () => {
               <Scissors />
             </div>
           )}
-
           <CardTitle className="text-xl font-bold leading-snug">
-            Você foi convidado para ser{" "}
-            <span style={{ color: primary }}>
-              {roleLabels[invite?.role ?? ""] || invite?.role}
-            </span>{" "}
-            no{" "}
-            <span className="font-semibold">
-              {invite?.salon_name}
-            </span>
-            .
-            <br />
-            Aceita?
-          </CardTitle>
+  Você foi convidado para ser{" "}
+  <span style={{ color: primary }}>
+    {invite?.role === "dono"
+      ? "dono"
+      : invite?.role === "funcionario"
+      ? "funcionário"
+      : "membro da equipe"}
+  </span>{" "}
+  no{" "}
+  <span className="font-semibold">
+    {invite?.salon_name || "salão"}
+  </span>
+  .
+  <br />
+  Aceita?
+</CardTitle>
+
+
+  
         </CardHeader>
 
         <CardContent>
