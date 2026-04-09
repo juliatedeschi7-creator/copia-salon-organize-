@@ -20,11 +20,6 @@ interface InviteInfo {
   role: string;
 }
 
-const roleLabels: Record<string, string> = {
-  dono: "dono",
-  funcionario: "funcionário",
-};
-
 const TeamInvitePage = () => {
   const { token } = useParams();
   const navigate = useNavigate();
@@ -38,12 +33,17 @@ const TeamInvitePage = () => {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // 🔥 LOAD INVITE CORRETO
   useEffect(() => {
     const loadInvite = async () => {
+      if (!token) return;
+
       const { data, error } = await supabase.rpc(
         "get_team_invite_by_token",
         { _token: token }
       );
+
+      console.log("INVITE DATA:", data);
 
       if (error || !data) {
         toast.error("Convite inválido");
@@ -51,7 +51,9 @@ const TeamInvitePage = () => {
         return;
       }
 
-      setInvite(data);
+      const inviteData = Array.isArray(data) ? data[0] : data;
+
+      setInvite(inviteData);
       setLoading(false);
     };
 
@@ -62,6 +64,7 @@ const TeamInvitePage = () => {
     e.preventDefault();
     setSubmitting(true);
 
+    // 🔐 LOGIN
     if (isLogin) {
       const { error } = await supabase.auth.signInWithPassword({
         email,
@@ -74,8 +77,12 @@ const TeamInvitePage = () => {
         return;
       }
 
+      toast.success("Entrou com sucesso!");
       navigate("/");
-    } else {
+    }
+
+    // 🆕 SIGNUP (VAI PARA PENDENTE)
+    else {
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -83,7 +90,7 @@ const TeamInvitePage = () => {
           data: {
             full_name: name,
             role: invite?.role,
-            status: "pending", // 🔥 ESSENCIAL pro admin aprovar
+            status: "pending",
           },
         },
       });
@@ -109,6 +116,13 @@ const TeamInvitePage = () => {
 
   const primary = invite?.salon_primary_color || "#c0365d";
 
+  const roleLabel =
+    invite?.role === "dono"
+      ? "dono"
+      : invite?.role === "funcionario"
+      ? "funcionário"
+      : "membro da equipe";
+
   return (
     <div
       className="flex min-h-screen items-center justify-center px-4"
@@ -131,31 +145,26 @@ const TeamInvitePage = () => {
               <Scissors />
             </div>
           )}
+
+          {/* 🔥 TEXTO FINAL CORRETO */}
           <CardTitle className="text-xl font-bold leading-snug">
-  Você foi convidado para ser{" "}
-  <span style={{ color: primary }}>
-    {invite?.role === "dono"
-      ? "dono"
-      : invite?.role === "funcionario"
-      ? "funcionário"
-      : "membro da equipe"}
-  </span>{" "}
-  no{" "}
-  <span className="font-semibold">
-    {invite?.salon_name || "salão"}
-  </span>
-  .
-  <br />
-  Aceita?
-</CardTitle>
-
-
-  
+            Você foi convidado para ser{" "}
+            <span style={{ color: primary }}>{roleLabel}</span>{" "}
+            no{" "}
+            <span className="font-semibold">
+              {invite?.salon_name || "salão"}
+            </span>
+            .
+            <br />
+            Aceita?
+          </CardTitle>
         </CardHeader>
 
         <CardContent>
           <p className="text-center text-sm text-muted-foreground mb-4">
-            Crie sua conta para entrar na equipe
+            {isLogin
+              ? "Entre para aceitar o convite"
+              : "Crie sua conta para entrar na equipe"}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
