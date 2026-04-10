@@ -32,18 +32,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setIsLoading(true);
 
       try {
-        // 🔥 timeout pra nunca travar
-        const result = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise((resolve) =>
-            setTimeout(() => resolve({ data: { session: null } }), 4000)
-          ),
-        ]);
+        // 🔥 USAR getUser (NÃO TRAVA NO ANÔNIMO)
+        const { data, error } = await supabase.auth.getUser();
 
-        const session = (result as any)?.data?.session;
+        const user = data?.user;
 
         // 🔓 NÃO LOGADO
-        if (!session?.user) {
+        if (!user) {
           if (!mounted) return;
 
           setUser(null);
@@ -53,22 +48,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        const currentUser = session.user;
-
         if (!mounted) return;
-        setUser(currentUser);
+        setUser(user);
 
         // 🔥 BUSCAR PROFILE
-        const { data: profileData, error } = await supabase
+        const { data: profileData, error: profileErr } = await supabase
           .from("profiles")
           .select("*")
-          .eq("id", currentUser.id)
+          .eq("id", user.id)
           .maybeSingle();
 
         if (!mounted) return;
 
-        if (error) {
-          console.error("Erro ao carregar profile:", error);
+        if (profileErr) {
+          console.error("Erro ao carregar profile:", profileErr);
           setProfile(null);
           setProfileError(true);
         } else {
@@ -87,11 +80,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setProfile(null);
         setProfileError(true);
         setProfileLoaded(true);
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
       }
+
+      setIsLoading(false);
     };
 
     init();
