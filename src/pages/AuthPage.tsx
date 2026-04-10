@@ -61,7 +61,14 @@ useEffect(() => {
             </h1>
           </div>
         )}
-
+{salonName && (
+  <div className="text-center mb-4">
+    <p className="text-sm text-gray-500">Bem-vindo ao</p>
+    <h1 className="text-2xl font-bold text-pink-600">
+      {salonName}
+    </h1>
+  </div>
+)}
         <h2 className="text-xl font-semibold text-center">
           Entrar
         </h2>
