@@ -25,48 +25,52 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     const init = async () => {
-      setIsLoading(true);
+      try {
+        setIsLoading(true);
 
-      const { data } = await supabase.auth.getSession();
-      const session = data.session;
+        const { data } = await supabase.auth.getSession();
+        const session = data.session;
 
-      // 🔓 usuário não logado
-      if (!session?.user) {
-        setUser(null);
-        setProfile(null);
+        // 🔓 NÃO LOGADO
+        if (!session?.user) {
+          setUser(null);
+          setProfile(null);
+          setProfileError(false);
+          setProfileLoaded(true);
+          return;
+        }
+
+        const currentUser = session.user;
+        setUser(currentUser);
+
+        // 🔥 BUSCAR PROFILE
+        const { data: profileData, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", currentUser.id)
+          .maybeSingle();
+
+        if (error || !profileData) {
+          console.error("Erro ao carregar profile:", error);
+          setProfile(null);
+          setProfileError(true);
+        } else {
+          setProfile(profileData);
+          setProfileError(false);
+        }
+
         setProfileLoaded(true);
-        setIsLoading(false);
-        return;
-      }
-
-      const currentUser = session.user;
-      setUser(currentUser);
-
-      // 🔥 buscar profile
-      const { data: profileData, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", currentUser.id)
-        .maybeSingle();
-
-      if (error || !profileData) {
-        console.error("Erro ao carregar profile:", error);
-        setProfile(null);
+      } catch (err) {
+        console.error("Erro geral:", err);
         setProfileError(true);
         setProfileLoaded(true);
+      } finally {
         setIsLoading(false);
-        return;
       }
-
-      setProfile(profileData);
-      setProfileError(false);
-      setProfileLoaded(true);
-      setIsLoading(false);
     };
 
     init();
 
-    // 🔄 escuta mudanças de auth (login/logout)
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
       init();
     });
@@ -76,11 +80,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  // 🎯 role do usuário
   const role: Role = profile?.role ?? null;
 
-  // 🎯 status de aprovação
-  const isApproved = profile?.status === "approved";
+  // 🔥 ADMIN SEMPRE APROVADO
+  const isApproved =
+    role === "admin" || profile?.status === "approved";
 
   return (
     <AuthContext.Provider
@@ -100,5 +104,4 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-// ✅ hook de uso
 export const useAuth = () => useContext(AuthContext);
