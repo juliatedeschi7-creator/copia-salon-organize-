@@ -1,107 +1,46 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+const init = async () => {
+  try {
+    setIsLoading(true);
 
-type Role = "admin" | "dono" | "funcionario" | "cliente" | null;
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), 5000)
+    );
 
-interface AuthContextType {
-  user: any;
-  profile: any;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  profileLoaded: boolean;
-  profileError: boolean;
-  isApproved: boolean;
-  role: Role;
-}
+    const sessionPromise = supabase.auth.getSession();
 
-const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+    const { data } = await Promise.race([
+      sessionPromise,
+      timeout,
+    ]) as any;
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [profileLoaded, setProfileLoaded] = useState(false);
-  const [profileError, setProfileError] = useState(false);
+    const session = data?.session;
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        setIsLoading(true);
+    if (!session?.user) {
+      setUser(null);
+      setProfile(null);
+      setProfileLoaded(true);
+      return;
+    }
 
-        const { data } = await supabase.auth.getSession();
-        const session = data.session;
+    const currentUser = session.user;
+    setUser(currentUser);
 
-        // 🔓 NÃO LOGADO
-        if (!session?.user) {
-          setUser(null);
-          setProfile(null);
-          setProfileError(false);
-          setProfileLoaded(true);
-          return;
-        }
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", currentUser.id)
+      .maybeSingle();
 
-        const currentUser = session.user;
-        setUser(currentUser);
+    setProfile(profileData || null);
+    setProfileLoaded(true);
+  } catch (err) {
+    console.error("Timeout ou erro:", err);
 
-        // 🔥 BUSCAR PROFILE
-        const { data: profileData, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", currentUser.id)
-          .maybeSingle();
-
-        if (error || !profileData) {
-          console.error("Erro ao carregar profile:", error);
-          setProfile(null);
-          setProfileError(true);
-        } else {
-          setProfile(profileData);
-          setProfileError(false);
-        }
-
-        setProfileLoaded(true);
-      } catch (err) {
-        console.error("Erro geral:", err);
-        setProfileError(true);
-        setProfileLoaded(true);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    init();
-
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      init();
-    });
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
-  }, []);
-
-  const role: Role = profile?.role ?? null;
-
-  // 🔥 ADMIN SEMPRE APROVADO
-  const isApproved =
-    role === "admin" || profile?.status === "approved";
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        isAuthenticated: !!user,
-        isLoading,
-        profileLoaded,
-        profileError,
-        isApproved,
-        role,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+    // 🔥 NUNCA TRAVA
+    setUser(null);
+    setProfile(null);
+    setProfileLoaded(true);
+  } finally {
+    setIsLoading(false);
+  }
 };
-
-export const useAuth = () => useContext(AuthContext);
