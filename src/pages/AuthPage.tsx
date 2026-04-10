@@ -9,28 +9,36 @@ const AuthPage = () => {
   const [salonName, setSalonName] = useState("");
   const [loadingSalon, setLoadingSalon] = useState(true);
 
-  useEffect(() => {
-    const loadSalon = async () => {
-      if (!salonId) {
-        setLoadingSalon(false);
-        return;
+useEffect(() => {
+  const loadSalon = async () => {
+    if (!salonId) return;
+
+    const { data, error } = await supabase
+      .from("salons")
+      .select("id, name, primary_color")
+      .eq("id", salonId)
+      .maybeSingle(); // 🔥 IMPORTANTE
+
+    if (error) {
+      console.error("Erro ao buscar salão:", error);
+      return;
+    }
+
+    if (data) {
+      setSalonName(data.name);
+
+      // opcional: aplicar cor dinâmica
+      if (data.primary_color) {
+        document.documentElement.style.setProperty(
+          "--primary",
+          data.primary_color
+        );
       }
+    }
+  };
 
-      const { data } = await supabase
-        .from("salons")
-        .select("name")
-        .eq("id", salonId)
-        .single();
-
-      if (data) {
-        setSalonName(data.name);
-      }
-
-      setLoadingSalon(false);
-    };
-
-    loadSalon();
-  }, [salonId]);
+  loadSalon();
+}, [salonId]);
 
   if (loadingSalon) {
     return (
