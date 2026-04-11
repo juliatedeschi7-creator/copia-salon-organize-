@@ -44,7 +44,7 @@ const AppRoutes = () => {
 
   const { salon } = useSalon();
 
-  // 🔄 LOADING GLOBAL
+  // 🔄 loading
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -53,7 +53,7 @@ const AppRoutes = () => {
     );
   }
 
-  // 🔓 NÃO LOGADO
+  // 🔓 não logado
   if (!isAuthenticated) {
     return (
       <Routes>
@@ -64,7 +64,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ❌ ERRO DE PROFILE
+  // ❌ erro perfil
   if (profileError) {
     return (
       <Routes>
@@ -73,7 +73,7 @@ const AppRoutes = () => {
           element={
             <BlockedAccessPage
               title="Erro ao carregar perfil"
-              description="Não foi possível carregar seus dados."
+              description="Tente novamente."
             />
           }
         />
@@ -81,7 +81,24 @@ const AppRoutes = () => {
     );
   }
 
-  // ⏳ PENDENTE (ADMIN IGNORA)
+  // ❌ REJEITADO (NOVO)
+  if (profile?.status === "rejected") {
+    return (
+      <Routes>
+        <Route
+          path="*"
+          element={
+            <BlockedAccessPage
+              title="Acesso recusado"
+              description="Seu cadastro não foi aprovado."
+            />
+          }
+        />
+      </Routes>
+    );
+  }
+
+  // ⏳ pendente
   if (!isApproved && role !== "admin") {
     return (
       <Routes>
@@ -90,41 +107,7 @@ const AppRoutes = () => {
     );
   }
 
-  // 🚫 EXCLUÍDO
-  if (profile?.deleted_at && role !== "admin") {
-    return (
-      <Routes>
-        <Route
-          path="*"
-          element={
-            <BlockedAccessPage
-              title="Conta desativada"
-              description="Sua conta foi desativada."
-            />
-          }
-        />
-      </Routes>
-    );
-  }
-
-  // 🚫 BLOQUEADO
-  if (profile?.access_state === "blocked" && role !== "admin") {
-    return (
-      <Routes>
-        <Route
-          path="*"
-          element={
-            <BlockedAccessPage
-              title="Acesso bloqueado"
-              description="Seu acesso foi bloqueado."
-            />
-          }
-        />
-      </Routes>
-    );
-  }
-
-  // 🏪 DONO SEM SALÃO
+  // 🏪 dono sem salão
   if (role === "dono" && !salon) {
     return (
       <Routes>
@@ -133,7 +116,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ✅ APP NORMAL
+  // ✅ app normal
   return (
     <Routes>
       <Route element={<AppLayout />}>
