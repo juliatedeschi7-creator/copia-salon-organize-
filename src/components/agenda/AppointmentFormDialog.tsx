@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { fetchSalonClients } from "@/lib/salonClients";
+
+/* ================= TYPES ================= */
 
 interface AppointmentFormDialogProps {
   open: boolean;
@@ -32,6 +34,9 @@ const AppointmentFormDialog = ({
 
   const [services, setServices] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
+  const [slots, setSlots] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
 
@@ -52,15 +57,26 @@ const AppointmentFormDialog = ({
     setFetching(true);
 
     const fetchData = async () => {
-      const [servicesRes, salonClients] = await Promise.all([
-        supabase
-          .from("services")
-          .select("id, name, duration_minutes")
-          .eq("salon_id", salon.id)
-          .eq("is_active", true),
+      const [servicesRes, salonClients, slotsRes, appointmentsRes] =
+        await Promise.all([
+          supabase
+            .from("services")
+            .select("id, name, duration_minutes")
+            .eq("salon_id", salon.id)
+            .eq("is_active", true),
 
-        fetchSalonClients(salon.id),
-      ]);
+          fetchSalonClients(salon.id),
+
+          supabase
+            .from("available_slots")
+            .select("*")
+            .eq("salon_id", salon.id),
+
+          supabase
+            .from("appointments")
+            .select("*")
+            .eq("salon_id", salon.id),
+        ]);
 
       if (cancelled) return;
 
@@ -72,6 +88,9 @@ const AppointmentFormDialog = ({
         }))
       );
 
+      setSlots(slotsRes.data || []);
+      setAppointments(appointmentsRes.data || []);
+
       setFetching(false);
     };
 
@@ -82,7 +101,7 @@ const AppointmentFormDialog = ({
     };
   }, [open, salon]);
 
-  /* ================= EDIT FILL ================= */
+  /* ================= EDIT ================= */
 
   useEffect(() => {
     if (appointment) {
@@ -100,6 +119,27 @@ const AppointmentFormDialog = ({
     }
   }, [appointment, open]);
 
+  /* ================= AVAILABLE SLOTS ================= */
+
+  const availableSlots = useMemo(() => {
+    if (!date) return [];
+
+    const day = new Date(date).getDay();
+
+    return slots.filter((slot) => {
+      const sameDay = slot.day_of_week === day;
+
+      const alreadyBooked = appointments.some(
+        (a) =>
+          a.appointment_date === date &&
+          a.start_time === slot.start_time &&
+          a.status !== "recusado"
+      );
+
+      return sameDay && slot.is_active && !alreadyBooked;
+    });
+  }, [date, slots, appointments]);
+
   /* ================= SUBMIT ================= */
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -113,7 +153,7 @@ const AppointmentFormDialog = ({
       return;
     }
 
-    /* ================= CALC END TIME ================= */
+    /* ================= END TIME ================= */
 
     const [h, m] = startTime.split(":").map(Number);
     const totalMinutes = h * 60 + m + service.duration_minutes;
@@ -125,7 +165,7 @@ const AppointmentFormDialog = ({
     setLoading(true);
 
     try {
-      /* ================= CONFLITO DE HORÁRIO ================= */
+      /* ================= CONFLITO ================= */
 
       const exists = await supabase
         .from("appointments")
@@ -135,15 +175,15 @@ const AppointmentFormDialog = ({
         .in("status", ["pendente", "aprovado"]);
 
       if (exists.data?.length) {
-        toast.error("Esse horário já está ocupado.");
+        toast.error("Esse horário já foi ocupado.");
         setLoading(false);
         return;
       }
 
-      /* ================= UPDATE ================= */
+      /* ================= EDIT ================= */
 
       if (isEdit && appointment) {
-        const { error } = await supabase
+        await supabase
           .from("appointments")
           .update({
             service_id: serviceId,
@@ -155,15 +195,13 @@ const AppointmentFormDialog = ({
           })
           .eq("id", appointment.id);
 
-        if (error) throw error;
-
-        toast.success("Agendamento atualizado!");
+        toast.success("Atualizado!");
       }
 
       /* ================= CREATE (PENDENTE) ================= */
 
       else {
-        const { error } = await supabase.from("appointments").insert({
+        await supabase.from("appointments").insert({
           salon_id: salon.id,
           service_id: serviceId,
           client_user_id: clientUserId,
@@ -172,23 +210,17 @@ const AppointmentFormDialog = ({
           end_time: endTime,
           notes: notes || "",
 
-          /* 🔥 FLUXO CORRETO */
-          status: "pendente",
-          whatsapp_code: null,
-          whatsapp_confirmed_at: null,
-          whatsapp_confirmed_by: null,
+          status: "pendente", // 🔥 FLUXO CORRETO
         });
 
-        if (error) throw error;
-
-        toast.success("Solicitação enviada! Aguardando aprovação.");
+        toast.success("Pedido enviado!");
       }
 
       onSuccess();
       onOpenChange(false);
     } catch (err: any) {
       console.error(err);
-      toast.error("Erro ao salvar: " + (err?.message || ""));
+      toast.error("Erro ao salvar");
     } finally {
       setLoading(false);
     }
@@ -207,17 +239,17 @@ const AppointmentFormDialog = ({
 
         {fetching ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin" />
+            <Loader2 className="animate-spin" />
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
 
             {/* CLIENTE */}
-            <div className="space-y-2">
-              <Label>Cliente *</Label>
+            <div>
+              <Label>Cliente</Label>
               <Select value={clientUserId} onValueChange={setClientUserId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione o cliente" />
+                  <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
                   {clients.map((c) => (
@@ -230,11 +262,11 @@ const AppointmentFormDialog = ({
             </div>
 
             {/* SERVIÇO */}
-            <div className="space-y-2">
-              <Label>Serviço *</Label>
+            <div>
+              <Label>Serviço</Label>
               <Select value={serviceId} onValueChange={setServiceId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione o serviço" />
+                  <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
                   {services.map((s) => (
@@ -246,17 +278,47 @@ const AppointmentFormDialog = ({
               </Select>
             </div>
 
-            {/* DATA + HORA */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Data *</Label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-              </div>
+            {/* DATA */}
+            <div>
+              <Label>Data</Label>
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  setStartTime("");
+                }}
+              />
+            </div>
 
-              <div>
-                <Label>Horário *</Label>
-                <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-              </div>
+            {/* HORÁRIOS REAIS */}
+            <div>
+              <Label>Horários disponíveis</Label>
+
+              {!date ? (
+                <p className="text-sm text-muted-foreground">
+                  Escolha uma data
+                </p>
+              ) : availableSlots.length === 0 ? (
+                <p className="text-sm text-red-500">
+                  Nenhum horário disponível
+                </p>
+              ) : (
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {availableSlots.map((slot) => (
+                    <Button
+                      key={slot.id}
+                      type="button"
+                      variant={
+                        startTime === slot.start_time ? "default" : "outline"
+                      }
+                      onClick={() => setStartTime(slot.start_time)}
+                    >
+                      {slot.start_time}
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* OBS */}
@@ -273,7 +335,7 @@ const AppointmentFormDialog = ({
 
               <Button type="submit" disabled={loading}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isEdit ? "Salvar" : "Enviar pedido"}
+                {isEdit ? "Salvar" : "Agendar"}
               </Button>
             </div>
 
