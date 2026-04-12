@@ -1,223 +1,201 @@
-import React, { useState, useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { useSalon } from "@/contexts/SalonContext";
+import React, { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/contexts/AuthContext";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Package, CalendarClock, ListChecks, Loader2, History } from "lucide-react";
-import { format, isPast } from "date-fns";
+import { Loader2, Package } from "lucide-react";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-interface ServiceRow {
-  name: string;
-}
-
-interface ClientPackageItemRow {
-  id: string;
+interface PackageItem {
   service_id: string;
   quantity_total: number;
   quantity_used: number;
-  services: ServiceRow | null;
+  services: {
+    name: string;
+  };
 }
 
-interface PackageRow {
+interface ClientPackage {
   id: string;
-  name: string;
-  description: string | null;
-  price: number | null;
-  validity_days: number;
-  rules: string | null;
-}
-
-interface ClientPackageRow {
-  id: string;
-  package_id: string;
-  purchased_at: string;
   expires_at: string;
-  status: string;
-  client_package_items: ClientPackageItemRow[];
+  created_at: string;
+  packages: {
+    name: string;
+    description: string;
+  };
+  client_package_items: PackageItem[];
 }
 
-const statusMap: Record<string, { label: string; className: string }> = {
-  ativo: { label: "Ativo", className: "bg-green-500/15 text-green-700 border-green-500/30" },
-  concluido: { label: "Concluído", className: "bg-primary/15 text-primary border-primary/30" },
-  finalizado: { label: "Finalizado", className: "bg-primary/15 text-primary border-primary/30" },
-  expirado: { label: "Expirado", className: "bg-muted text-muted-foreground border-border" },
-  cancelado: { label: "Cancelado", className: "bg-destructive/15 text-destructive border-destructive/30" },
-};
+const ClientPackages = () => {
+  const { user } = useAuth();
 
-const PackageCard = ({ cp, pkg }: { cp: ClientPackageRow; pkg: PackageRow }) => {
-  const expired = isPast(new Date(cp.expires_at));
-  const effectiveStatus = expired && cp.status === "ativo" ? "expirado" : cp.status;
-  const st = statusMap[effectiveStatus] || statusMap.ativo;
-  const items = cp.client_package_items ?? [];
+  const [activePackages, setActivePackages] = useState<ClientPackage[]>([]);
+  const [oldPackages, setOldPackages] = useState<ClientPackage[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  return (
-    <div className="rounded-lg border border-border p-4 space-y-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="font-semibold text-foreground">{pkg.name}</p>
-          {pkg.description && (
-            <p className="text-xs text-muted-foreground mt-0.5">{pkg.description}</p>
-          )}
+  const fetchPackages = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("client_packages")
+      .select(`
+        id,
+        created_at,
+        expires_at,
+        packages(name, description),
+        client_package_items(
+          service_id,
+          quantity_total,
+          quantity_used,
+          services(name)
+        )
+      `)
+      .eq("client_user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      setLoading(false);
+      return;
+    }
+
+    const now = new Date();
+
+    const active: ClientPackage[] = [];
+    const old: ClientPackage[] = [];
+
+    (data || []).forEach((pkg: any) => {
+      const expired = new Date(pkg.expires_at) < now;
+      const fullyUsed = pkg.client_package_items.every(
+        (i: PackageItem) => i.quantity_used >= i.quantity_total
+      );
+
+      if (!expired && !fullyUsed) {
+        active.push(pkg);
+      } else {
+        old.push(pkg);
+      }
+    });
+
+    setActivePackages(active);
+    setOldPackages(old);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchPackages();
+  }, [user]);
+
+  const renderPackageCard = (pkg: ClientPackage, highlight = false) => {
+    return (
+      <div
+        key={pkg.id}
+        className={`min-w-[280px] max-w-[280px] rounded-xl p-4 transition ${
+          highlight
+            ? "bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/30"
+            : "bg-card border border-border"
+        }`}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold">{pkg.packages.name}</h3>
+          <Badge variant="outline">
+            {new Date(pkg.expires_at) < new Date()
+              ? "Expirado"
+              : "Ativo"}
+          </Badge>
         </div>
-        <Badge variant="outline" className={st.className}>
-          {st.label}
-        </Badge>
-      </div>
 
-      {items.length > 0 && (
+        {pkg.packages.description && (
+          <p className="text-xs text-muted-foreground mb-3">
+            {pkg.packages.description}
+          </p>
+        )}
+
         <div className="space-y-2">
-          {items.map((item) => {
-            const pct = item.quantity_total > 0 ? (item.quantity_used / item.quantity_total) * 100 : 0;
+          {pkg.client_package_items.map((item) => {
+            const remaining = item.quantity_total - item.quantity_used;
+            const percent =
+              (item.quantity_used / item.quantity_total) * 100;
+
             return (
-              <div key={item.id} className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{item.services?.name ?? "Serviço desconhecido"}</span>
-                  <span>{item.quantity_used}/{item.quantity_total}</span>
+              <div key={item.service_id}>
+                <div className="flex justify-between text-sm">
+                  <span>{item.services.name}</span>
+                  <span className="text-primary font-medium">
+                    {remaining} restante(s)
+                  </span>
                 </div>
-                <Progress value={pct} className="h-1.5" />
+
+                {/* Barra estilo Netflix */}
+                <div className="h-2 w-full bg-muted rounded-full overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
               </div>
             );
           })}
         </div>
-      )}
 
-      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <CalendarClock className="h-3.5 w-3.5" />
-          Comprado em {format(new Date(cp.purchased_at), "dd/MM/yyyy", { locale: ptBR })}
-        </span>
-        <span className="flex items-center gap-1">
-          <CalendarClock className="h-3.5 w-3.5" />
-          Válido até {format(new Date(cp.expires_at), "dd/MM/yyyy", { locale: ptBR })}
-        </span>
-        {pkg.price != null && pkg.price > 0 && <span>R$ {Number(pkg.price).toFixed(2)}</span>}
+        <p className="text-xs text-muted-foreground mt-3">
+          Expira em{" "}
+          {format(new Date(pkg.expires_at), "dd/MM/yyyy", {
+            locale: ptBR,
+          })}
+        </p>
       </div>
-
-      {pkg.rules && pkg.rules.trim() !== "" && (
-        <div className="rounded-md bg-muted/50 p-3">
-          <p className="flex items-center gap-1.5 text-xs font-medium text-foreground mb-1">
-            <ListChecks className="h-3.5 w-3.5" /> Regras do pacote
-          </p>
-          <p className="text-xs text-muted-foreground whitespace-pre-line">{pkg.rules}</p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const ClientPackages = () => {
-  const { user } = useAuth();
-  const { salon } = useSalon();
-  const [clientPackages, setClientPackages] = useState<ClientPackageRow[]>([]);
-  const [packages, setPackages] = useState<PackageRow[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchPackages = async () => {
-      if (!user || !salon) return;
-      const [cpRes, pRes] = await Promise.all([
-        supabase
-          .from("client_packages")
-          .select("id, package_id, purchased_at, expires_at, status, client_package_items(id, service_id, quantity_total, quantity_used, services(name))")
-          .eq("client_user_id", user.id)
-          .eq("salon_id", salon.id)
-          .order("purchased_at", { ascending: false }),
-        supabase
-          .from("packages")
-          .select("id, name, description, price, validity_days, rules")
-          .eq("salon_id", salon.id),
-      ]);
-      setClientPackages((cpRes.data ?? []) as unknown as ClientPackageRow[]);
-      setPackages((pRes.data ?? []) as PackageRow[]);
-      setLoading(false);
-    };
-    fetchPackages();
-  }, [user, salon]);
+    );
+  };
 
   if (loading) {
     return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-10">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </CardContent>
+      <div className="flex justify-center py-10">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (activePackages.length === 0 && oldPackages.length === 0) {
+    return (
+      <Card className="p-6 text-center text-muted-foreground">
+        Você ainda não possui pacotes.
       </Card>
     );
   }
 
-  const packageMap = Object.fromEntries(packages.map((p) => [p.id, p]));
-
-  const activePackages = clientPackages.filter((cp) => {
-    const pkg = packageMap[cp.package_id];
-    if (!pkg) return false;
-    const expired = isPast(new Date(cp.expires_at));
-    const effectiveStatus = expired && cp.status === "ativo" ? "expirado" : cp.status;
-    return effectiveStatus === "ativo";
-  });
-
-  const historyPackages = clientPackages.filter((cp) => {
-    const pkg = packageMap[cp.package_id];
-    if (!pkg) return false;
-    const expired = isPast(new Date(cp.expires_at));
-    const effectiveStatus = expired && cp.status === "ativo" ? "expirado" : cp.status;
-    return effectiveStatus !== "ativo";
-  });
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Package className="h-5 w-5 text-primary" /> Meus Pacotes
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {clientPackages.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Você ainda não possui pacotes
-          </p>
-        ) : (
-          <Tabs defaultValue="ativos">
-            <TabsList className="mb-4">
-              <TabsTrigger value="ativos" className="gap-1.5">
-                <Package className="h-3.5 w-3.5" />
-                Ativos {activePackages.length > 0 && `(${activePackages.length})`}
-              </TabsTrigger>
-              <TabsTrigger value="historico" className="gap-1.5">
-                <History className="h-3.5 w-3.5" />
-                Histórico {historyPackages.length > 0 && `(${historyPackages.length})`}
-              </TabsTrigger>
-            </TabsList>
+    <div className="space-y-6">
+      {/* 🔥 ATIVOS */}
+      {activePackages.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Package className="h-5 w-5 text-primary" />
+            Seus pacotes ativos
+          </h2>
 
-            <TabsContent value="ativos" className="space-y-4">
-              {activePackages.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">Nenhum pacote ativo no momento</p>
-              ) : (
-                activePackages.map((cp) => {
-                  const pkg = packageMap[cp.package_id];
-                  if (!pkg) return null;
-                  return <PackageCard key={cp.id} cp={cp} pkg={pkg} />;
-                })
-              )}
-            </TabsContent>
+          <div className="flex gap-4 overflow-x-auto pb-2">
+            {activePackages.map((pkg, i) =>
+              renderPackageCard(pkg, i === 0) // destaque no primeiro
+            )}
+          </div>
+        </div>
+      )}
 
-            <TabsContent value="historico" className="space-y-4">
-              {historyPackages.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">Nenhum pacote anterior</p>
-              ) : (
-                historyPackages.map((cp) => {
-                  const pkg = packageMap[cp.package_id];
-                  if (!pkg) return null;
-                  return <PackageCard key={cp.id} cp={cp} pkg={pkg} />;
-                })
-              )}
-            </TabsContent>
-          </Tabs>
-        )}
-      </CardContent>
-    </Card>
+      {/* 📦 HISTÓRICO */}
+      {oldPackages.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-2">
+            Histórico de pacotes
+          </h2>
+
+          <div className="flex gap-4 overflow-x-auto pb-2">
+            {oldPackages.map((pkg) => renderPackageCard(pkg))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
