@@ -10,35 +10,16 @@ import { useSalon } from "@/contexts/SalonContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import { generateWhatsAppCode } from "@/lib/whatsapp";
 import { fetchSalonClients } from "@/lib/salonClients";
 
 interface AppointmentFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
-  appointment?: {
-    id: string;
-    appointment_date: string;
-    start_time: string;
-    end_time: string;
-    client_user_id: string;
-    service_id: string;
-    notes: string | null;
-    status: string;
-  } | null;
+  appointment?: any | null;
 }
 
-interface ServiceOption {
-  id: string;
-  name: string;
-  duration_minutes: number;
-}
-
-interface ClientOption {
-  user_id: string;
-  name: string;
-}
+/* ================= COMPONENT ================= */
 
 const AppointmentFormDialog = ({
   open,
@@ -49,8 +30,8 @@ const AppointmentFormDialog = ({
   const { salon } = useSalon();
   const { user } = useAuth();
 
-  const [services, setServices] = useState<ServiceOption[]>([]);
-  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
 
@@ -62,12 +43,53 @@ const AppointmentFormDialog = ({
 
   const isEdit = !!appointment;
 
+  /* ================= LOAD DATA ================= */
+
+  useEffect(() => {
+    if (!open || !salon) return;
+
+    let cancelled = false;
+    setFetching(true);
+
+    const fetchData = async () => {
+      const [servicesRes, salonClients] = await Promise.all([
+        supabase
+          .from("services")
+          .select("id, name, duration_minutes")
+          .eq("salon_id", salon.id)
+          .eq("is_active", true),
+
+        fetchSalonClients(salon.id),
+      ]);
+
+      if (cancelled) return;
+
+      setServices(servicesRes.data || []);
+      setClients(
+        salonClients.map((c: any) => ({
+          user_id: c.user_id,
+          name: c.displayName,
+        }))
+      );
+
+      setFetching(false);
+    };
+
+    fetchData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, salon]);
+
+  /* ================= EDIT FILL ================= */
+
   useEffect(() => {
     if (appointment) {
       setServiceId(appointment.service_id);
       setClientUserId(appointment.client_user_id);
       setDate(appointment.appointment_date);
-      setStartTime(appointment.start_time?.slice(0, 5) || "");
+      setStartTime(appointment.start_time?.slice(0, 5));
       setNotes(appointment.notes || "");
     } else {
       setServiceId("");
@@ -78,73 +100,48 @@ const AppointmentFormDialog = ({
     }
   }, [appointment, open]);
 
-  useEffect(() => {
-    if (!open || !salon) return;
-
-    let cancelled = false;
-    setFetching(true);
-
-    const fetchData = async () => {
-      try {
-        const [servicesRes, salonClientsList] = await Promise.all([
-          supabase
-            .from("services")
-            .select("id, name, duration_minutes")
-            .eq("salon_id", salon.id)
-            .eq("is_active", true),
-          fetchSalonClients(salon.id),
-        ]);
-
-        if (servicesRes.error) throw servicesRes.error;
-
-        if (cancelled) return;
-
-        setServices((servicesRes.data || []) as ServiceOption[]);
-        setClients(
-          salonClientsList.map((c) => ({
-            user_id: c.user_id,
-            name: c.displayName,
-          }))
-        );
-      } catch (err: any) {
-        if (!cancelled) {
-          console.error(err);
-          toast.error("Erro ao carregar dados do agendamento.");
-          setServices([]);
-          setClients([]);
-        }
-      } finally {
-        if (!cancelled) setFetching(false);
-      }
-    };
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, salon?.id]);
+  /* ================= SUBMIT ================= */
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!salon || !user) return;
 
     const service = services.find((s) => s.id === serviceId);
+
     if (!service || !clientUserId || !date || !startTime) {
       toast.error("Preencha todos os campos obrigatórios.");
       return;
     }
 
-    // Calculate end time from duration
+    /* ================= CALC END TIME ================= */
+
     const [h, m] = startTime.split(":").map(Number);
     const totalMinutes = h * 60 + m + service.duration_minutes;
-    const endH = String(Math.floor(totalMinutes / 60)).padStart(2, "0");
-    const endM = String(totalMinutes % 60).padStart(2, "0");
-    const endTime = `${endH}:${endM}`;
+
+    const endTime = `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(
+      totalMinutes % 60
+    ).padStart(2, "0")}`;
 
     setLoading(true);
 
     try {
+      /* ================= CONFLITO DE HORÁRIO ================= */
+
+      const exists = await supabase
+        .from("appointments")
+        .select("id")
+        .eq("appointment_date", date)
+        .eq("start_time", startTime)
+        .in("status", ["pendente", "aprovado"]);
+
+      if (exists.data?.length) {
+        toast.error("Esse horário já está ocupado.");
+        setLoading(false);
+        return;
+      }
+
+      /* ================= UPDATE ================= */
+
       if (isEdit && appointment) {
         const { error } = await supabase
           .from("appointments")
@@ -161,11 +158,11 @@ const AppointmentFormDialog = ({
         if (error) throw error;
 
         toast.success("Agendamento atualizado!");
-        onSuccess();
-        onOpenChange(false);
-      } else {
-        const now = new Date().toISOString();
+      }
 
+      /* ================= CREATE (PENDENTE) ================= */
+
+      else {
         const { error } = await supabase.from("appointments").insert({
           salon_id: salon.id,
           service_id: serviceId,
@@ -174,47 +171,48 @@ const AppointmentFormDialog = ({
           start_time: startTime,
           end_time: endTime,
           notes: notes || "",
-          status: "aprovado",
-          whatsapp_code: generateWhatsAppCode(),
-          whatsapp_confirmed_at: now,
-          whatsapp_confirmed_by: user.id,
+
+          /* 🔥 FLUXO CORRETO */
+          status: "pendente",
+          whatsapp_code: null,
+          whatsapp_confirmed_at: null,
+          whatsapp_confirmed_by: null,
         });
 
         if (error) throw error;
 
-        toast.success("Agendamento criado!");
-        onSuccess();
-        onOpenChange(false);
+        toast.success("Solicitação enviada! Aguardando aprovação.");
       }
+
+      onSuccess();
+      onOpenChange(false);
     } catch (err: any) {
       console.error(err);
-      toast.error("Erro ao salvar: " + (err?.message ?? "tente novamente"));
+      toast.error("Erro ao salvar: " + (err?.message || ""));
     } finally {
       setLoading(false);
     }
   };
 
+  /* ================= UI ================= */
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="
-          w-[calc(100vw-2rem)]
-          sm:max-w-md
-          max-w-[520px]
-          max-h-[85vh]
-          overflow-y-auto
-        "
-      >
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Editar agendamento" : "Novo agendamento"}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? "Editar agendamento" : "Novo agendamento"}
+          </DialogTitle>
         </DialogHeader>
 
         {fetching ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* CLIENTE */}
             <div className="space-y-2">
               <Label>Cliente *</Label>
               <Select value={clientUserId} onValueChange={setClientUserId}>
@@ -224,13 +222,14 @@ const AppointmentFormDialog = ({
                 <SelectContent>
                   {clients.map((c) => (
                     <SelectItem key={c.user_id} value={c.user_id}>
-                      {c.name || "Sem nome"}
+                      {c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
+            {/* SERVIÇO */}
             <div className="space-y-2">
               <Label>Serviço *</Label>
               <Select value={serviceId} onValueChange={setServiceId}>
@@ -247,36 +246,37 @@ const AppointmentFormDialog = ({
               </Select>
             </div>
 
+            {/* DATA + HORA */}
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
+              <div>
                 <Label>Data *</Label>
                 <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
-              <div className="space-y-2">
+
+              <div>
                 <Label>Horário *</Label>
                 <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
               </div>
             </div>
 
-            <div className="space-y-2">
+            {/* OBS */}
+            <div>
               <Label>Observações</Label>
-              <Textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Opcional..."
-                rows={2}
-              />
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            {/* ACTIONS */}
+            <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
               </Button>
+
               <Button type="submit" disabled={loading}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isEdit ? "Salvar" : "Criar"}
+                {isEdit ? "Salvar" : "Enviar pedido"}
               </Button>
             </div>
+
           </form>
         )}
       </DialogContent>
