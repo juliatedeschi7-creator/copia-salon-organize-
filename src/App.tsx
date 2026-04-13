@@ -1,37 +1,3 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { SalonProvider, useSalon } from "@/contexts/SalonContext";
-import AppLayout from "@/components/AppLayout";
-import AuthPage from "@/pages/AuthPage";
-import PendingApprovalPage from "@/pages/PendingApprovalPage";
-import BlockedAccessPage from "@/pages/BlockedAccessPage";
-import CreateSalonPage from "@/pages/CreateSalonPage";
-import DashboardPage from "@/pages/DashboardPage";
-import AgendaPage from "@/pages/AgendaPage";
-import ServicesPage from "@/pages/ServicesPage";
-import ClientesPage from "@/pages/ClientesPage";
-import AnamnesesPage from "@/pages/AnamnesesPage";
-import PacotesPage from "@/pages/PacotesPage";
-import EstoquePage from "@/pages/EstoquePage";
-import FinanceiroPage from "@/pages/FinanceiroPage";
-import SettingsPage from "@/pages/SettingsPage";
-import NotificationsPage from "@/pages/NotificationsPage";
-import AdminPage from "@/pages/AdminPage";
-import ClientInvitePage from "@/pages/ClientInvitePage";
-import TeamInvitePage from "@/pages/TeamInvitePage";
-import ContasPage from "@/pages/ContasPage";
-import MySchedulePage from "@/pages/MySchedulePage";
-import ClientSchedulePage from "@/pages/ClientSchedulePage";
-import ServicesShowcasePage from "@/pages/ServicesShowcasePage";
-import NotFound from "./pages/NotFound";
-import { Loader2 } from "lucide-react";
-
-const queryClient = new QueryClient();
-
 const AppRoutes = () => {
   const {
     isAuthenticated,
@@ -42,19 +8,10 @@ const AppRoutes = () => {
     profileError,
   } = useAuth();
 
-  const { salon, isLoading: salonLoading } = useSalon();
+  const { salon } = useSalon();
 
-  // 🔄 loading auth
+  // 🔄 loading auth (APENAS AUTH pode travar)
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
-  // 🔥 loading salão (CORREÇÃO DO LOOP)
-  if (salonLoading && isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -157,21 +114,3 @@ const AppRoutes = () => {
     </Routes>
   );
 };
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <SalonProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
-        </TooltipProvider>
-      </SalonProvider>
-    </AuthProvider>
-  </QueryClientProvider>
-);
-
-export default App;
