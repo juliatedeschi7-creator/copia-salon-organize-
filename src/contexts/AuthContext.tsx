@@ -18,43 +18,56 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [profileError, setProfileError] = useState(false);
+
+  // 🔥 NUNCA MAIS TRAVA
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
-    // 🔥 pega sessão imediatamente (sem await travando)
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
+    // 🔥 NÃO ESPERA NADA
+    const init = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
 
-      const sessionUser = data.session?.user ?? null;
-      setUser(sessionUser);
-      setIsLoading(false);
+        if (!mounted) return;
 
-      // 🔥 busca profile depois (não bloqueia app)
-      if (sessionUser) {
-        supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", sessionUser.id)
-          .maybeSingle()
-          .then(({ data, error }) => {
-            if (!mounted) return;
+        const sessionUser = data.session?.user ?? null;
 
-            if (error) {
-              console.error(error);
-              setProfileError(true);
-              setProfile(null);
-            } else {
-              setProfile(data || null);
-              setProfileError(false);
-            }
-          });
+        setUser(sessionUser);
+
+        // 🔥 busca profile SEM travar app
+        if (sessionUser) {
+          supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", sessionUser.id)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (!mounted) return;
+
+              if (error) {
+                setProfileError(true);
+                setProfile(null);
+              } else {
+                setProfile(data || null);
+                setProfileError(false);
+              }
+            });
+        }
+      } catch (err) {
+        console.error(err);
+        if (!mounted) return;
+
+        setUser(null);
+        setProfile(null);
+        setProfileError(true);
       }
-    });
+    };
 
-    // 🔄 listener REAL (esse resolve 90% dos bugs)
+    init();
+
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!mounted) return;
@@ -104,7 +117,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         profile,
         isAuthenticated: !!user,
-        isLoading,
+        isLoading, // 🔥 sempre false → nunca trava
         profileError,
         isApproved,
         role,
