@@ -16,7 +16,7 @@ interface Salon {
 }
 
 interface SalonContextType {
-  salon: Salon | null;
+  salon: Salon | null | undefined;
   isLoading: boolean;
   createSalon: (name: string) => Promise<void>;
   updateSalon: (updates: Partial<Salon>) => Promise<void>;
@@ -24,7 +24,7 @@ interface SalonContextType {
 }
 
 const SalonContext = createContext<SalonContextType>({
-  salon: null,
+  salon: undefined,
   isLoading: false,
   createSalon: async () => {},
   updateSalon: async () => {},
@@ -36,30 +36,25 @@ export const useSalon = () => useContext(SalonContext);
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const { user, role, isAuthenticated } = useAuth();
 
-  const [salon, setSalon] = useState<Salon | null>(null);
+  const [salon, setSalon] = useState<Salon | null | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchSalon = async () => {
     try {
-      // 🔥 aguarda role existir
-      if (!role) {
-        setIsLoading(false);
-        return;
-      }
-
-      // 🔓 não logado
+      // 🔥 NÃO bloqueia por role
       if (!isAuthenticated || !user) {
         setSalon(null);
         return;
       }
 
-      // 👤 cliente/admin não usa salão
+      // 🔥 cliente/admin não usam salão
       if (role === "cliente" || role === "admin") {
         setSalon(null);
         return;
       }
 
       setIsLoading(true);
+      setSalon(undefined); // 🔥 estado de carregando REAL
 
       const { data: membership } = await supabase
         .from("salon_members")
@@ -84,13 +79,15 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       console.error("Erro salon:", err);
       setSalon(null);
     } finally {
-      setIsLoading(false); // 🔥 nunca trava
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSalon();
-  }, [user?.id, role, isAuthenticated]);
+    if (user) {
+      fetchSalon();
+    }
+  }, [user?.id]);
 
   const createSalon = async (name: string) => {
     if (!user) return;
