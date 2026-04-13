@@ -26,17 +26,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const init = async () => {
       try {
-        // 🔥 timeout anti-trava (3s)
-        const timeout = new Promise((resolve) =>
-          setTimeout(() => resolve(null), 3000)
-        );
+        setIsLoading(true);
 
-        const result: any = await Promise.race([
-          supabase.auth.getUser(),
-          timeout,
-        ]);
+        // ✅ CORREÇÃO AQUI (não trava nunca)
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-        const currentUser = result?.data?.user ?? null;
+        const currentUser = session?.user ?? null;
 
         if (!mounted) return;
 
@@ -50,29 +47,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(currentUser);
 
-        // 🔥 buscar profile (com fallback)
-        try {
-          const { data: profileData, error } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", currentUser.id)
-            .maybeSingle();
+        // 🔥 buscar profile
+        const { data: profileData, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", currentUser.id)
+          .maybeSingle();
 
-          if (error) {
-            console.error("Erro profile:", error);
-            setProfile(null);
-            setProfileError(true);
-          } else {
-            setProfile(profileData || null);
-            setProfileError(false);
-          }
-        } catch (err) {
-          console.error("Erro fetch profile:", err);
+        if (!mounted) return;
+
+        if (error) {
+          console.error("Erro profile:", error);
           setProfile(null);
           setProfileError(true);
+        } else {
+          setProfile(profileData || null);
+          setProfileError(false);
         }
       } catch (err) {
-        console.error("Erro geral auth:", err);
+        console.error("Erro auth:", err);
 
         if (!mounted) return;
 
@@ -80,8 +73,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setProfile(null);
         setProfileError(true);
       } finally {
-        // 🔥 NUNCA TRAVA
-        if (mounted) setIsLoading(false);
+        if (mounted) setIsLoading(false); // 🔥 nunca trava
       }
     };
 
