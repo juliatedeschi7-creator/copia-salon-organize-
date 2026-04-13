@@ -42,10 +42,19 @@ const AppRoutes = () => {
     profileError,
   } = useAuth();
 
-  const { salon } = useSalon();
+  const { salon, isLoading: salonLoading } = useSalon();
 
-  // 🔄 loading
+  // 🔄 loading auth
   if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  // 🔥 loading salão (CORREÇÃO DO LOOP)
+  if (salonLoading && isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -81,7 +90,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ❌ REJEITADO (NOVO)
+  // ❌ REJEITADO
   if (profile?.status === "rejected") {
     return (
       <Routes>
@@ -134,9 +143,14 @@ const AppRoutes = () => {
         <Route path="/admin" element={<AdminPage />} />
         <Route
           path="/minha-agenda"
-          element={role === "cliente" ? <ClientSchedulePage /> : <MySchedulePage />}
+          element={
+            role === "cliente" ? <ClientSchedulePage /> : <MySchedulePage />
+          }
         />
-        <Route path="/servicos-catalogo" element={<ServicesShowcasePage />} />
+        <Route
+          path="/servicos-catalogo"
+          element={<ServicesShowcasePage />}
+        />
       </Route>
 
       <Route path="*" element={<NotFound />} />
