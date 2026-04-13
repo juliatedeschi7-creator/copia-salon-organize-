@@ -41,13 +41,19 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchSalon = async () => {
     try {
-      // 🔥 NÃO BLOQUEIA APP
+      // 🔥 aguarda role existir
+      if (!role) {
+        setIsLoading(false);
+        return;
+      }
+
+      // 🔓 não logado
       if (!isAuthenticated || !user) {
         setSalon(null);
         return;
       }
 
-      // 🔥 cliente não precisa salão
+      // 👤 cliente/admin não usa salão
       if (role === "cliente" || role === "admin") {
         setSalon(null);
         return;
@@ -78,15 +84,13 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       console.error("Erro salon:", err);
       setSalon(null);
     } finally {
-      // 🔥 GARANTE QUE NUNCA TRAVA
-      setIsLoading(false);
+      setIsLoading(false); // 🔥 nunca trava
     }
   };
 
   useEffect(() => {
     fetchSalon();
-    // 🔥 roda só quando user muda
-  }, [user?.id]);
+  }, [user?.id, role, isAuthenticated]);
 
   const createSalon = async (name: string) => {
     if (!user) return;
