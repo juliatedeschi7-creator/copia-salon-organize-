@@ -28,7 +28,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         setIsLoading(true);
 
-        // ✅ CORREÇÃO AQUI (não trava nunca)
+        // 🔥 PEGA SESSÃO RÁPIDA (NÃO TRAVA)
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -37,7 +37,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (!mounted) return;
 
-        // 🔓 NÃO LOGADO
         if (!currentUser) {
           setUser(null);
           setProfile(null);
@@ -47,7 +46,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(currentUser);
 
-        // 🔥 buscar profile
+        // 🔥 PROFILE COM PROTEÇÃO
         const { data: profileData, error } = await supabase
           .from("profiles")
           .select("*")
@@ -73,18 +72,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setProfile(null);
         setProfileError(true);
       } finally {
-        if (mounted) setIsLoading(false); // 🔥 nunca trava
+        if (mounted) setIsLoading(false); // 🔥 NUNCA TRAVA
       }
     };
 
     init();
 
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (!mounted) return;
-
-      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
-        init();
-      }
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+      init();
     });
 
     return () => {
