@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -61,14 +67,22 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
     setIsLoading(true);
 
     try {
-      const { data: membership, error: membershipErr } = await supabase
+      // 🔥 pega todos os salões do usuário e escolhe o mais recente
+      const { data: memberships, error: membershipErr } = await supabase
         .from("salon_members")
-        .select("salon_id")
+        .select("salon_id, created_at")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .order("created_at", { ascending: false });
 
-      if (membershipErr || !membership?.salon_id) {
-        console.error(membershipErr);
+      if (membershipErr) {
+        console.error("membership error:", membershipErr);
+        setSalon(null);
+        return;
+      }
+
+      const membership = memberships?.[0];
+
+      if (!membership?.salon_id) {
         setSalon(null);
         return;
       }
@@ -80,14 +94,14 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
         .maybeSingle();
 
       if (salonErr) {
-        console.error(salonErr);
+        console.error("salon error:", salonErr);
         setSalon(null);
         return;
       }
 
       setSalon((salonData ?? null) as Salon | null);
     } catch (err) {
-      console.error(err);
+      console.error("fetchSalon error:", err);
       setSalon(null);
     } finally {
       setIsLoading(false);
@@ -108,7 +122,7 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
       .single();
 
     if (error) {
-      toast.error(error.message);
+      toast.error("Erro ao criar salão: " + error.message);
       return;
     }
 
@@ -119,7 +133,7 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     setSalon(data as Salon);
-    toast.success("Salão criado!");
+    toast.success("Salão criado com sucesso!");
   };
 
   const updateSalon = async (updates: Partial<Salon>) => {
@@ -131,11 +145,12 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
       .eq("id", salon.id);
 
     if (error) {
-      toast.error(error.message);
+      toast.error("Erro ao salvar: " + error.message);
       return;
     }
 
     setSalon((prev) => (prev ? { ...prev, ...updates } : prev));
+    toast.success("Configurações salvas!");
   };
 
   return (
