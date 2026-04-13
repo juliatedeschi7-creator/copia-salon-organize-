@@ -28,15 +28,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         setIsLoading(true);
 
-        // 🔥 PEGA SESSÃO RÁPIDA (NÃO TRAVA)
+        // 🔥 PEGA SESSÃO (RÁPIDO E ESTÁVEL)
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        const currentUser = session?.user ?? null;
-
         if (!mounted) return;
 
+        const currentUser = session?.user ?? null;
+
+        // 🔓 NÃO LOGADO
         if (!currentUser) {
           setUser(null);
           setProfile(null);
@@ -46,7 +47,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(currentUser);
 
-        // 🔥 PROFILE COM PROTEÇÃO
+        // 🔥 BUSCAR PROFILE (SEM TRAVAR)
         const { data: profileData, error } = await supabase
           .from("profiles")
           .select("*")
@@ -56,7 +57,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!mounted) return;
 
         if (error) {
-          console.error("Erro profile:", error);
+          console.error("Erro ao carregar profile:", error);
           setProfile(null);
           setProfileError(true);
         } else {
@@ -64,22 +65,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setProfileError(false);
         }
       } catch (err) {
-        console.error("Erro auth:", err);
+        console.error("Erro geral Auth:", err);
 
         if (!mounted) return;
 
+        // 🔥 fallback TOTAL (nunca trava)
         setUser(null);
         setProfile(null);
         setProfileError(true);
       } finally {
-        if (mounted) setIsLoading(false); // 🔥 NUNCA TRAVA
+        // 🔥 GARANTE QUE NUNCA FICA EM LOADING
+        if (mounted) setIsLoading(false);
       }
     };
 
     init();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      init();
+    // 🔄 escuta login/logout (sem loop infinito)
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (!mounted) return;
+
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        init();
+      }
     });
 
     return () => {
@@ -90,6 +98,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const role: Role = profile?.role ?? null;
 
+  // 🔥 ADMIN SEMPRE LIBERADO
   const isApproved =
     role === "admin" || profile?.status === "approved";
 
