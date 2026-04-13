@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -18,6 +24,7 @@ interface SalonInfo {
 const ClientInvitePage = () => {
   const { linkId } = useParams<{ linkId: string }>();
   const navigate = useNavigate();
+
   const [salon, setSalon] = useState<SalonInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -31,22 +38,22 @@ const ClientInvitePage = () => {
   const [needsBirthDate, setNeedsBirthDate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  /** Save birth_date to the user's profile row */
-  const saveBirthDate = async (userId: string, date: string): Promise<boolean> => {
+  const saveBirthDate = async (userId: string, date: string) => {
     const { error } = await supabase
       .from("profiles")
       .update({ birth_date: date })
       .eq("id", userId);
+
     if (error) {
-      console.error("saveBirthDate error:", error);
-      toast.error("Não foi possível salvar a data de nascimento. Tente novamente.");
+      console.error(error);
+      toast.error("Erro ao salvar data de nascimento");
       return false;
     }
+
     return true;
   };
 
-  /** Call accept_client_invite RPC to link user to salon as pending cliente */
-  const linkClientToSalon = async (userId: string): Promise<boolean> => {
+  const linkClientToSalon = async (userId: string) => {
     if (!linkId) return false;
 
     const { data, error } = await supabase.rpc("accept_client_invite", {
@@ -54,148 +61,126 @@ const ClientInvitePage = () => {
       _user_id: userId,
     });
 
-    if (error) {
-      console.error("accept_client_invite error:", error);
-      toast.error(`Falha ao vincular: ${error.code ?? ""} ${error.message}`);
+    if (error || data !== "ok") {
+      toast.error("Erro ao vincular cliente ao salão");
       return false;
     }
 
-    // RPC returns a status string
-    if (data === "ok") return true;
-
-    if (data === "not_found") {
-      toast.error("Link de convite inválido ou salão não encontrado.");
-      return false;
-    }
-
-    if (data === "forbidden") {
-      toast.error(
-        "Sua sessão não foi reconhecida. Saia e entre novamente para concluir o vínculo com o salão."
-      );
-      return false;
-    }
-
-    console.error("accept_client_invite unexpected status:", data);
-    toast.error("Não foi possível concluir o vínculo com o salão. Tente novamente.");
-    return false;
+    return true;
   };
 
   useEffect(() => {
     const fetchSalon = async () => {
-      if (!linkId) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
+      setLoading(true);
 
-      const { data, error } = await supabase.rpc("get_salon_by_client_link", { _link: linkId });
-      if (error || !data || (data as any[]).length === 0) {
-        setNotFound(true);
-        setLoading(false);
-        return;
-      }
+      try {
+        if (!linkId) {
+          setNotFound(true);
+          return;
+        }
 
-      const row = Array.isArray(data) ? data[0] : data;
-      setSalon(row as SalonInfo);
+        const { data, error } = await supabase.rpc(
+          "get_salon_by_client_link",
+          { _link: linkId }
+        );
 
-      // If user is already authenticated, check birth_date before linking
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        if (error || !data || (data as any[]).length === 0) {
+          setNotFound(true);
+          return;
+        }
 
-      if (session?.user) {
-        // Check if they already have a birth_date on their profile
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("birth_date")
-          .eq("id", session.user.id)
-          .single();
+        const row = Array.isArray(data) ? data[0] : data;
+        setSalon(row as SalonInfo);
 
-        if (profileData?.birth_date) {
-          // Already has birth_date → link and navigate immediately
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session?.user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("birth_date")
+            .eq("id", session.user.id)
+            .single();
+
+          if (!profile?.birth_date) {
+            setNeedsBirthDate(true);
+            return;
+          }
+
           const ok = await linkClientToSalon(session.user.id);
+
           if (ok) {
-            toast.success("Cadastro de cliente registrado! Aguardando aprovação do salão.");
+            toast.success("Cliente vinculado com sucesso!");
             navigate("/");
             return;
           }
-        } else {
-          // Needs to fill in birth_date first — show form
-          setNeedsBirthDate(true);
         }
+      } catch (err) {
+        console.error(err);
+        setNotFound(true);
+      } finally {
+        setLoading(false); // 🔥 GARANTE QUE NUNCA TRAVA
       }
-
-      setLoading(false);
     };
 
     fetchSalon();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkId, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Validate birth_date when required (signup or needsBirthDate)
-    if (!isLogin || needsBirthDate) {
-      if (!birthDate) {
-        setBirthDateError("Informe sua data de nascimento.");
-        return;
-      }
-      setBirthDateError("");
-    }
-
     setSubmitting(true);
 
-    if (needsBirthDate) {
-      // Already logged in but missing birth_date — save it then link
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        const saved = await saveBirthDate(user.id, birthDate);
-        if (!saved) {
-          setSubmitting(false);
-          return;
-        }
-        const ok = await linkClientToSalon(user.id);
-        if (ok) {
-          toast.success("Cadastro de cliente registrado! Aguardando aprovação do salão.");
-          navigate("/");
+    try {
+      if (!isLogin) {
+        if (!birthDate) {
+          setBirthDateError("Informe sua data de nascimento");
           return;
         }
       }
-      setSubmitting(false);
-      return;
-    }
 
-    if (isLogin) {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        toast.error(error.message);
-        setSubmitting(false);
-      } else {
+      if (needsBirthDate) {
         const {
           data: { user },
-          error: userErr,
         } = await supabase.auth.getUser();
 
-        if (userErr) {
-          console.error("getUser after login error:", userErr);
+        if (!user) return;
+
+        const okBirth = await saveBirthDate(user.id, birthDate);
+        if (!okBirth) return;
+
+        const ok = await linkClientToSalon(user.id);
+        if (ok) {
+          toast.success("Cadastro concluído!");
+          navigate("/");
         }
+
+        return;
+      }
+
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          toast.error(error.message);
+          return;
+        }
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
         if (user) {
-          const ok = await linkClientToSalon(user.id);
-          if (!ok) {
-            setSubmitting(false);
-            return;
-          }
+          await linkClientToSalon(user.id);
         }
 
-        toast.success("Login realizado! Aguardando aprovação do dono do salão.");
         navigate("/");
+        return;
       }
-    } else {
-      // SIGN UP
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -203,198 +188,104 @@ const ClientInvitePage = () => {
           data: {
             name,
             full_name: name,
-            salon_client_link: linkId,
           },
-          emailRedirectTo: window.location.origin,
         },
       });
 
       if (error) {
         toast.error(error.message);
-        setSubmitting(false);
-      } else if (data?.user) {
-        // Auto sign-in so we can call the RPC immediately
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        return;
+      }
 
-        if (signInError) {
-          console.error("signInAfterSignUp error:", signInError);
-        } else {
-          // Use the user from the CURRENT session (more reliable on iOS/Safari)
-          const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (data?.user) {
+        const okBirth = await saveBirthDate(data.user.id, birthDate);
 
-          if (userErr || !userData?.user) {
-            console.error("getUser after signIn error:", userErr);
-            toast.error(
-              "Conta criada, mas não foi possível finalizar o login. Faça login novamente para concluir o vínculo com o salão."
-            );
-          } else {
-            const saved = await saveBirthDate(userData.user.id, birthDate);
-            if (saved) {
-              await linkClientToSalon(userData.user.id);
-            }
-          }
+        if (okBirth) {
+          await linkClientToSalon(data.user.id);
         }
 
-        toast.success("Conta criada! Aguardando aprovação do dono do salão.");
+        toast.success("Conta criada com sucesso!");
         navigate("/");
-      } else {
-        setSubmitting(false);
       }
+    } finally {
+      setSubmitting(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
 
   if (notFound) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-md text-center">
-          <CardContent className="py-12">
-            <Scissors className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">Link inválido</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Este link de convite não existe ou expirou.</p>
-          </CardContent>
-        </Card>
+      <div className="flex min-h-screen items-center justify-center">
+        <p>Convite inválido ou expirado</p>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          {salon?.logo_url ? (
-            <img src={salon.logo_url} alt={salon.name} className="mx-auto mb-3 h-16 w-16 rounded-xl object-cover" />
-          ) : (
-            <div
-              className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl text-primary-foreground"
-              style={{ backgroundColor: salon?.primary_color || "hsl(var(--primary))" }}
-            >
-              <Scissors className="h-7 w-7" />
-            </div>
-          )}
-          <CardTitle className="text-xl">{salon?.name}</CardTitle>
-          <CardDescription className="mt-1">
-            {needsBirthDate
-              ? "Complete seu cadastro para continuar"
-              : isLogin
-              ? "Entre na sua conta de cliente"
-              : "Crie sua conta e acesse sua área exclusiva"}
+        <CardHeader>
+          <CardTitle>{salon?.name}</CardTitle>
+          <CardDescription>
+            {isLogin ? "Login cliente" : "Criar conta cliente"}
           </CardDescription>
-
-          {!isLogin && !needsBirthDate && (
-            <>
-              <ul className="mt-3 space-y-1 text-left text-xs text-muted-foreground">
-                <li>📅 Agende atendimentos com facilidade</li>
-                <li>💆 Confira o catálogo de serviços do salão</li>
-                <li>🗒️ Acompanhe o uso e evolução dos seus pacotes</li>
-                <li>🔔 Receba notificações e comunicados do salão</li>
-              </ul>
-
-              <div className="mt-3 flex items-start gap-2 rounded-md bg-muted/60 p-2 text-left text-xs text-muted-foreground">
-                <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>Após criar a conta, aguarde a aprovação do dono do salão para acessar sua área.</span>
-              </div>
-            </>
-          )}
         </CardHeader>
 
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {needsBirthDate ? (
-              <div className="space-y-2">
-                <Label htmlFor="birth-date">Data de nascimento</Label>
-                <Input
-                  id="birth-date"
-                  type="date"
-                  value={birthDate}
-                  onChange={(e) => {
-                    setBirthDate(e.target.value);
-                    if (e.target.value) setBirthDateError("");
-                  }}
-                  required
-                />
-                {birthDateError && (
-                  <p className="text-sm text-destructive">{birthDateError}</p>
-                )}
-              </div>
-            ) : (
-              <>
-                {!isLogin && (
-                  <div className="space-y-2">
-                    <Label>Nome completo</Label>
-                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" required />
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label>E-mail</Label>
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="seu@email.com"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Senha</Label>
-                  <Input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    minLength={6}
-                  />
-                </div>
-
-                {!isLogin && (
-                  <div className="space-y-2">
-                    <Label htmlFor="birth-date">Data de nascimento</Label>
-                    <Input
-                      id="birth-date"
-                      type="date"
-                      value={birthDate}
-                      onChange={(e) => {
-                        setBirthDate(e.target.value);
-                        if (e.target.value) setBirthDateError("");
-                      }}
-                      required
-                    />
-                    {birthDateError && (
-                      <p className="text-sm text-destructive">{birthDateError}</p>
-                    )}
-                  </div>
-                )}
-              </>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            {!isLogin && (
+              <Input
+                placeholder="Nome"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             )}
 
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {needsBirthDate ? "Continuar" : isLogin ? "Entrar" : "Criar conta"}
+            <Input
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+
+            <Input
+              type="password"
+              placeholder="Senha"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+
+            {!isLogin && (
+              <Input
+                type="date"
+                value={birthDate}
+                onChange={(e) => setBirthDate(e.target.value)}
+              />
+            )}
+
+            <Button disabled={submitting} className="w-full">
+              {submitting ? (
+                <Loader2 className="animate-spin h-4 w-4" />
+              ) : isLogin ? (
+                "Entrar"
+              ) : (
+                "Criar conta"
+              )}
             </Button>
           </form>
 
-          {!needsBirthDate && (
-            <p className="mt-4 text-center text-sm text-muted-foreground">
-              {isLogin ? "Não tem conta?" : "Já tem conta?"}{" "}
-              <button
-                type="button"
-                onClick={() => setIsLogin(!isLogin)}
-                className="font-medium text-primary hover:underline"
-              >
-                {isLogin ? "Criar conta" : "Fazer login"}
-              </button>
-            </p>
-          )}
+          <button
+            className="text-sm mt-3 text-blue-500"
+            onClick={() => setIsLogin(!isLogin)}
+          >
+            {isLogin ? "Criar conta" : "Já tenho conta"}
+          </button>
         </CardContent>
       </Card>
     </div>
