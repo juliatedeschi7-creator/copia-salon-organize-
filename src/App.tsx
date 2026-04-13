@@ -46,7 +46,7 @@ const AppRoutes = () => {
 
   const { salon } = useSalon();
 
-  // 🔄 loading auth
+  // 🔥 1. SÓ AUTH PODE BLOQUEAR
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -55,7 +55,7 @@ const AppRoutes = () => {
     );
   }
 
-  // 🔓 não logado
+  // 🔥 2. NÃO LOGADO → LOGIN SEMPRE
   if (!isAuthenticated) {
     return (
       <Routes>
@@ -66,7 +66,16 @@ const AppRoutes = () => {
     );
   }
 
-  // ❌ erro perfil
+  // 🔥 3. SE ROLE NÃO CARREGOU → NÃO TRAVA
+  if (!role) {
+    return (
+      <Routes>
+        <Route path="*" element={<AuthPage />} />
+      </Routes>
+    );
+  }
+
+  // 🔥 4. ERRO PERFIL
   if (profileError) {
     return (
       <Routes>
@@ -83,7 +92,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ❌ rejeitado
+  // 🔥 5. REJEITADO
   if (profile?.status === "rejected") {
     return (
       <Routes>
@@ -100,7 +109,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ⏳ pendente
+  // 🔥 6. PENDENTE
   if (!isApproved && role !== "admin") {
     return (
       <Routes>
@@ -109,8 +118,8 @@ const AppRoutes = () => {
     );
   }
 
-  // 🏪 dono sem salão
-  if (role === "dono" && !salon) {
+  // 🔥 7. DONO SEM SALÃO (MAS SEM TRAVAR)
+  if (role === "dono" && salon === null) {
     return (
       <Routes>
         <Route path="*" element={<CreateSalonPage />} />
@@ -118,7 +127,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ✅ app normal
+  // 🔥 8. APP NORMAL
   return (
     <Routes>
       <Route element={<AppLayout />}>
@@ -151,7 +160,6 @@ const AppRoutes = () => {
   );
 };
 
-// 🔥 ESSE É O QUE FALTAVA
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
