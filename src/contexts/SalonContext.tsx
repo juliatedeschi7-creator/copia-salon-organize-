@@ -1,8 +1,9 @@
-import {
+import React, {
   createContext,
   useContext,
   useState,
   useEffect,
+  ReactNode,
   useCallback,
 } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -45,19 +46,21 @@ const SalonContext = createContext<SalonContextType>({
 
 export const useSalon = () => useContext(SalonContext);
 
-export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
+export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const { user, role, isAuthenticated } = useAuth();
 
   const [salon, setSalon] = useState<Salon | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchSalon = useCallback(async () => {
+    // 🔓 NÃO LOGADO → nunca travar
     if (!isAuthenticated || !user) {
       setSalon(null);
       setIsLoading(false);
       return;
     }
 
+    // 👤 CLIENTE não precisa carregar salão aqui
     if (role !== "dono" && role !== "funcionario") {
       setSalon(null);
       setIsLoading(false);
@@ -67,43 +70,44 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
     setIsLoading(true);
 
     try {
-      // 🔥 pega todos os salões do usuário e escolhe o mais recente
+      // 🔥 BUSCA TODOS OS SALÕES DO USUÁRIO
       const { data: memberships, error: membershipErr } = await supabase
         .from("salon_members")
-        .select("salon_id, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+        .select("salon_id")
+        .eq("user_id", user.id);
 
       if (membershipErr) {
-        console.error("membership error:", membershipErr);
+        console.error("❌ Erro ao buscar vínculos:", membershipErr);
         setSalon(null);
         return;
       }
 
-      const membership = memberships?.[0];
-
-      if (!membership?.salon_id) {
+      if (!memberships || memberships.length === 0) {
         setSalon(null);
         return;
       }
+
+      // 🔥 REGRA: pega o primeiro salão (evita conflito)
+      const salonId = memberships[0].salon_id;
 
       const { data: salonData, error: salonErr } = await supabase
         .from("salons")
         .select("*")
-        .eq("id", membership.salon_id)
-        .maybeSingle();
+        .eq("id", salonId)
+        .single();
 
       if (salonErr) {
-        console.error("salon error:", salonErr);
+        console.error("❌ Erro ao buscar salão:", salonErr);
         setSalon(null);
         return;
       }
 
-      setSalon((salonData ?? null) as Salon | null);
+      setSalon(salonData as Salon);
     } catch (err) {
-      console.error("fetchSalon error:", err);
+      console.error("❌ Erro geral ao buscar salão:", err);
       setSalon(null);
     } finally {
+      // 🔥 CRÍTICO: nunca deixar travar
       setIsLoading(false);
     }
   }, [isAuthenticated, user?.id, role]);
@@ -112,12 +116,16 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
     fetchSalon();
   }, [fetchSalon]);
 
+  // 🏪 CRIAR SALÃO
   const createSalon = async (name: string) => {
     if (!user) return;
 
     const { data, error } = await supabase
       .from("salons")
-      .insert({ name, owner_id: user.id })
+      .insert({
+        name,
+        owner_id: user.id,
+      })
       .select()
       .single();
 
@@ -126,6 +134,7 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
+    // 🔗 vincula dono
     await supabase.from("salon_members").insert({
       salon_id: data.id,
       user_id: user.id,
@@ -136,6 +145,7 @@ export const SalonProvider = ({ children }: { children: React.ReactNode }) => {
     toast.success("Salão criado com sucesso!");
   };
 
+  // ⚙️ ATUALIZAR SALÃO
   const updateSalon = async (updates: Partial<Salon>) => {
     if (!salon) return;
 
