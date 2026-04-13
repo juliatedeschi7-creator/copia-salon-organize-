@@ -4,7 +4,13 @@
   "env": {
     "SKIP_ENV_VALIDATION": "true"
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
+  "routes": [
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ]
 }
