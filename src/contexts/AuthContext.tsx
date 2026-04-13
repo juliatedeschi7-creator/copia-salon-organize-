@@ -24,71 +24,68 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
-      try {
-        setIsLoading(true);
+    // 🔥 pega sessão imediatamente (sem await travando)
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
 
-        // 🔥 PEGA SESSÃO (RÁPIDO E ESTÁVEL)
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+      const sessionUser = data.session?.user ?? null;
+      setUser(sessionUser);
+      setIsLoading(false);
 
+      // 🔥 busca profile depois (não bloqueia app)
+      if (sessionUser) {
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", sessionUser.id)
+          .maybeSingle()
+          .then(({ data, error }) => {
+            if (!mounted) return;
+
+            if (error) {
+              console.error(error);
+              setProfileError(true);
+              setProfile(null);
+            } else {
+              setProfile(data || null);
+              setProfileError(false);
+            }
+          });
+      }
+    });
+
+    // 🔄 listener REAL (esse resolve 90% dos bugs)
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
         if (!mounted) return;
 
-        const currentUser = session?.user ?? null;
+        const sessionUser = session?.user ?? null;
 
-        // 🔓 NÃO LOGADO
-        if (!currentUser) {
-          setUser(null);
+        setUser(sessionUser);
+
+        if (!sessionUser) {
           setProfile(null);
-          setProfileError(false);
           return;
         }
 
-        setUser(currentUser);
-
-        // 🔥 BUSCAR PROFILE (SEM TRAVAR)
-        const { data: profileData, error } = await supabase
+        supabase
           .from("profiles")
           .select("*")
-          .eq("id", currentUser.id)
-          .maybeSingle();
+          .eq("id", sessionUser.id)
+          .maybeSingle()
+          .then(({ data, error }) => {
+            if (!mounted) return;
 
-        if (!mounted) return;
-
-        if (error) {
-          console.error("Erro ao carregar profile:", error);
-          setProfile(null);
-          setProfileError(true);
-        } else {
-          setProfile(profileData || null);
-          setProfileError(false);
-        }
-      } catch (err) {
-        console.error("Erro geral Auth:", err);
-
-        if (!mounted) return;
-
-        // 🔥 fallback TOTAL (nunca trava)
-        setUser(null);
-        setProfile(null);
-        setProfileError(true);
-      } finally {
-        // 🔥 GARANTE QUE NUNCA FICA EM LOADING
-        if (mounted) setIsLoading(false);
+            if (error) {
+              setProfileError(true);
+              setProfile(null);
+            } else {
+              setProfile(data || null);
+              setProfileError(false);
+            }
+          });
       }
-    };
-
-    init();
-
-    // 🔄 escuta login/logout (sem loop infinito)
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (!mounted) return;
-
-      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
-        init();
-      }
-    });
+    );
 
     return () => {
       mounted = false;
@@ -98,7 +95,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const role: Role = profile?.role ?? null;
 
-  // 🔥 ADMIN SEMPRE LIBERADO
   const isApproved =
     role === "admin" || profile?.status === "approved";
 
