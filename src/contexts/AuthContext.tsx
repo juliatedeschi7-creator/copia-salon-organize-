@@ -8,7 +8,6 @@ interface AuthContextType {
   profile: any;
   isAuthenticated: boolean;
   isLoading: boolean;
-  profileLoaded: boolean;
   profileError: boolean;
   isApproved: boolean;
   role: Role;
@@ -20,79 +19,74 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [profileLoaded, setProfileLoaded] = useState(false);
   const [profileError, setProfileError] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
     const init = async () => {
-      if (!mounted) return;
-
-      setIsLoading(true);
-
       try {
-        const { data, error } = await supabase.auth.getUser();
+        // 🔥 timeout anti-trava (3s)
+        const timeout = new Promise((resolve) =>
+          setTimeout(() => resolve(null), 3000)
+        );
 
-        if (error) {
-          console.error("Erro getUser:", error);
-        }
+        const result: any = await Promise.race([
+          supabase.auth.getUser(),
+          timeout,
+        ]);
 
-        const currentUser = data?.user;
+        const currentUser = result?.data?.user ?? null;
+
+        if (!mounted) return;
 
         // 🔓 NÃO LOGADO
         if (!currentUser) {
-          if (!mounted) return;
-
           setUser(null);
           setProfile(null);
           setProfileError(false);
-          setProfileLoaded(true);
           return;
         }
 
-        if (!mounted) return;
         setUser(currentUser);
 
-        // 🔥 BUSCA PROFILE
-        const { data: profileData, error: profileErr } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", currentUser.id)
-          .maybeSingle();
+        // 🔥 buscar profile (com fallback)
+        try {
+          const { data: profileData, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", currentUser.id)
+            .maybeSingle();
 
-        if (!mounted) return;
-
-        if (profileErr) {
-          console.error("Erro profile:", profileErr);
+          if (error) {
+            console.error("Erro profile:", error);
+            setProfile(null);
+            setProfileError(true);
+          } else {
+            setProfile(profileData || null);
+            setProfileError(false);
+          }
+        } catch (err) {
+          console.error("Erro fetch profile:", err);
           setProfile(null);
           setProfileError(true);
-        } else {
-          setProfile(profileData || null);
-          setProfileError(false);
         }
-
-        setProfileLoaded(true);
       } catch (err) {
-        console.error("Erro geral Auth:", err);
+        console.error("Erro geral auth:", err);
 
         if (!mounted) return;
 
-        // 🔥 fallback total (nunca trava)
         setUser(null);
         setProfile(null);
         setProfileError(true);
-        setProfileLoaded(true);
       } finally {
-        // 🔥 ESSENCIAL → nunca deixar loading infinito
+        // 🔥 NUNCA TRAVA
         if (mounted) setIsLoading(false);
       }
     };
 
-    // 🚀 primeira execução
     init();
 
-    // 🔄 escuta login/logout REAL (sem loop infinito)
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
       if (!mounted) return;
 
@@ -109,7 +103,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const role: Role = profile?.role ?? null;
 
-  // 🔥 ADMIN sempre aprovado
   const isApproved =
     role === "admin" || profile?.status === "approved";
 
@@ -120,7 +113,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         profile,
         isAuthenticated: !!user,
         isLoading,
-        profileLoaded,
         profileError,
         isApproved,
         role,
