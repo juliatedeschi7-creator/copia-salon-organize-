@@ -4,7 +4,6 @@ import React, {
   useState,
   useEffect,
   ReactNode,
-  useCallback,
 } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,18 +13,6 @@ interface Salon {
   id: string;
   owner_id: string;
   name: string;
-  description: string;
-  address: string;
-  phone: string;
-  logo_url: string | null;
-  client_link: string;
-  primary_color: string;
-  accent_color: string;
-  notifications_enabled: boolean;
-  working_hours: any;
-  reminder_hours: number[];
-  created_at: string;
-  updated_at: string;
 }
 
 interface SalonContextType {
@@ -38,7 +25,7 @@ interface SalonContextType {
 
 const SalonContext = createContext<SalonContextType>({
   salon: null,
-  isLoading: true,
+  isLoading: false,
   createSalon: async () => {},
   updateSalon: async () => {},
   refetch: async () => {},
@@ -50,102 +37,81 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   const { user, role, isAuthenticated } = useAuth();
 
   const [salon, setSalon] = useState<Salon | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const fetchSalon = useCallback(async () => {
-    // 🔓 NÃO LOGADO → nunca travar
-    if (!isAuthenticated || !user) {
-      setSalon(null);
-      setIsLoading(false);
-      return;
-    }
-
-    // 👤 CLIENTE não precisa carregar salão aqui
-    if (role !== "dono" && role !== "funcionario") {
-      setSalon(null);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-
+  const fetchSalon = async () => {
     try {
-      // 🔥 BUSCA TODOS OS SALÕES DO USUÁRIO
-      const { data: memberships, error: membershipErr } = await supabase
+      // 🔥 NÃO BLOQUEIA APP
+      if (!isAuthenticated || !user) {
+        setSalon(null);
+        return;
+      }
+
+      // 🔥 cliente não precisa salão
+      if (role === "cliente" || role === "admin") {
+        setSalon(null);
+        return;
+      }
+
+      setIsLoading(true);
+
+      const { data: membership } = await supabase
         .from("salon_members")
         .select("salon_id")
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .limit(1)
+        .maybeSingle();
 
-      if (membershipErr) {
-        console.error("❌ Erro ao buscar vínculos:", membershipErr);
+      if (!membership?.salon_id) {
         setSalon(null);
         return;
       }
 
-      if (!memberships || memberships.length === 0) {
-        setSalon(null);
-        return;
-      }
-
-      // 🔥 REGRA: pega o primeiro salão (evita conflito)
-      const salonId = memberships[0].salon_id;
-
-      const { data: salonData, error: salonErr } = await supabase
+      const { data: salonData } = await supabase
         .from("salons")
-        .select("*")
-        .eq("id", salonId)
-        .single();
+        .select("id, owner_id, name")
+        .eq("id", membership.salon_id)
+        .maybeSingle();
 
-      if (salonErr) {
-        console.error("❌ Erro ao buscar salão:", salonErr);
-        setSalon(null);
-        return;
-      }
-
-      setSalon(salonData as Salon);
+      setSalon(salonData || null);
     } catch (err) {
-      console.error("❌ Erro geral ao buscar salão:", err);
+      console.error("Erro salon:", err);
       setSalon(null);
     } finally {
-      // 🔥 CRÍTICO: nunca deixar travar
+      // 🔥 GARANTE QUE NUNCA TRAVA
       setIsLoading(false);
     }
-  }, [isAuthenticated, user?.id, role]);
+  };
 
   useEffect(() => {
     fetchSalon();
-  }, [fetchSalon]);
+    // 🔥 roda só quando user muda
+  }, [user?.id]);
 
-  // 🏪 CRIAR SALÃO
   const createSalon = async (name: string) => {
     if (!user) return;
 
     const { data, error } = await supabase
       .from("salons")
-      .insert({
-        name,
-        owner_id: user.id,
-      })
+      .insert({ name, owner_id: user.id })
       .select()
       .single();
 
     if (error) {
-      toast.error("Erro ao criar salão: " + error.message);
+      toast.error("Erro ao criar salão");
       return;
     }
 
-    // 🔗 vincula dono
     await supabase.from("salon_members").insert({
       salon_id: data.id,
       user_id: user.id,
       role: "dono",
     });
 
-    setSalon(data as Salon);
-    toast.success("Salão criado com sucesso!");
+    setSalon(data);
+    toast.success("Salão criado!");
   };
 
-  // ⚙️ ATUALIZAR SALÃO
   const updateSalon = async (updates: Partial<Salon>) => {
     if (!salon) return;
 
@@ -155,12 +121,11 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
       .eq("id", salon.id);
 
     if (error) {
-      toast.error("Erro ao salvar: " + error.message);
+      toast.error("Erro ao atualizar");
       return;
     }
 
     setSalon((prev) => (prev ? { ...prev, ...updates } : prev));
-    toast.success("Configurações salvas!");
   };
 
   return (
