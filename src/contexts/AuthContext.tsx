@@ -21,29 +21,35 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [profileError, setProfileError] = useState(false);
 
+  // ✅ NOVO: controle correto de inicialização da auth
+  const [authReady, setAuthReady] = useState(false);
+
   useEffect(() => {
     let mounted = true;
 
     const init = async () => {
-      setIsLoading(true);
-
       try {
+        setIsLoading(true);
+
+        // 🔥 pega sessão do Supabase (fonte real da verdade)
         const { data } = await supabase.auth.getSession();
         const session = data?.session ?? null;
 
         if (!mounted) return;
 
         const currentUser = session?.user ?? null;
-
         setUser(currentUser);
 
+        // 🔥 SEM USUÁRIO
         if (!currentUser) {
           setProfile(null);
           setProfileError(false);
+          setAuthReady(true);
           setIsLoading(false);
           return;
         }
 
+        // 🔥 busca profile
         const { data: profileData, error } = await supabase
           .from("profiles")
           .select("*")
@@ -60,23 +66,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setProfileError(false);
         }
       } catch (err) {
-        console.error(err);
+        console.error("Auth error:", err);
+
         if (!mounted) return;
-        setProfileError(true);
+
         setUser(null);
+        setProfile(null);
+        setProfileError(true);
       } finally {
-        if (mounted) setIsLoading(false);
+        if (mounted) {
+          setAuthReady(true); // 🔥 IMPORTANTE: nunca deixa travado
+          setIsLoading(false);
+        }
       }
     };
 
     init();
 
+    // 🔥 listener de auth (login/logout em tempo real)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
 
-      // sincroniza sem reentrar init infinito
+      // revalida profile sem travar UI
       setTimeout(() => {
         init();
       }, 0);
@@ -99,7 +112,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         profile,
         isAuthenticated: !!user,
-        isLoading,
+        isLoading: !authReady, // 🔥 FIX PRINCIPAL
         profileError,
         isApproved,
         role,
