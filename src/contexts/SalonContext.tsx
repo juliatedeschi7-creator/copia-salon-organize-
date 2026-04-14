@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { toast } from "sonner";
 
 interface Salon {
   id: string;
@@ -16,121 +15,63 @@ interface Salon {
 }
 
 interface SalonContextType {
-  salon: Salon | null | undefined;
-  isLoading: boolean;
-  createSalon: (name: string) => Promise<void>;
-  updateSalon: (updates: Partial<Salon>) => Promise<void>;
-  refetch: () => Promise<void>;
+  salon: Salon | null;
 }
 
-const SalonContext = createContext<SalonContextType>({} as any);
+const SalonContext = createContext<SalonContextType>({
+  salon: null,
+});
 
 export const useSalon = () => useContext(SalonContext);
 
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
-  const { user, role } = useAuth();
-
-  const [salon, setSalon] = useState<Salon | null | undefined>(undefined);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const fetchSalon = async () => {
-    if (!user) {
-      setSalon(null);
-      return;
-    }
-
-    if (role === "cliente" || role === "admin") {
-      setSalon(null);
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      const { data: membership } = await supabase
-        .from("salon_members")
-        .select("salon_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (!membership?.salon_id) {
-        setSalon(null);
-        return;
-      }
-
-      const { data: salonData } = await supabase
-        .from("salons")
-        .select("id, owner_id, name")
-        .eq("id", membership.salon_id)
-        .maybeSingle();
-
-      setSalon(salonData ?? null);
-    } catch (err) {
-      console.error("Salon error:", err);
-      setSalon(null);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { user, isAuthenticated, role } = useAuth();
+  const [salon, setSalon] = useState<Salon | null>(null);
 
   useEffect(() => {
-    if (user?.id) {
-      fetchSalon();
-    } else {
-      setSalon(null);
-    }
-  }, [user?.id, role]);
+    const fetchSalon = async () => {
+      try {
+        // 🔥 NÃO LOGADO → SEM SALÃO
+        if (!isAuthenticated || !user) {
+          setSalon(null);
+          return;
+        }
 
-  const createSalon = async (name: string) => {
-    if (!user) return;
+        // 🔥 cliente/admin não usam salão
+        if (role === "cliente" || role === "admin") {
+          setSalon(null);
+          return;
+        }
 
-    const { data, error } = await supabase
-      .from("salons")
-      .insert({ name, owner_id: user.id })
-      .select()
-      .single();
+        const { data: membership } = await supabase
+          .from("salon_members")
+          .select("salon_id")
+          .eq("user_id", user.id)
+          .maybeSingle();
 
-    if (error) {
-      toast.error("Erro ao criar salão");
-      return;
-    }
+        if (!membership?.salon_id) {
+          setSalon(null);
+          return;
+        }
 
-    await supabase.from("salon_members").insert({
-      salon_id: data.id,
-      user_id: user.id,
-      role: "dono",
-    });
+        const { data: salonData } = await supabase
+          .from("salons")
+          .select("id, owner_id, name")
+          .eq("id", membership.salon_id)
+          .maybeSingle();
 
-    setSalon(data);
-    toast.success("Salão criado!");
-  };
+        setSalon(salonData || null);
+      } catch (err) {
+        console.error("Erro salon:", err);
+        setSalon(null);
+      }
+    };
 
-  const updateSalon = async (updates: Partial<Salon>) => {
-    if (!salon) return;
-
-    const { error } = await supabase
-      .from("salons")
-      .update(updates)
-      .eq("id", salon.id);
-
-    if (error) {
-      toast.error("Erro ao atualizar");
-      return;
-    }
-
-    setSalon((prev) => (prev ? { ...prev, ...updates } : prev));
-  };
+    fetchSalon();
+  }, [user?.id, isAuthenticated, role]);
 
   return (
-    <SalonContext.Provider
-      value={{
-        salon,
-        isLoading,
-        createSalon,
-        updateSalon,
-        refetch: fetchSalon,
-      }}
-    >
+    <SalonContext.Provider value={{ salon }}>
       {children}
     </SalonContext.Provider>
   );
