@@ -3,17 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 type Role = "admin" | "dono" | "funcionario" | "cliente" | null;
 
-interface AuthContextType {
-  user: any;
-  profile: any;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  profileError: boolean;
-  isApproved: boolean;
-  role: Role;
-}
-
-const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+const AuthContext = createContext<any>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
@@ -28,24 +18,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         setIsLoading(true);
 
-        // 🔥 TIMEOUT ANTI-TRAVA (mobile safe)
-        const timeout = new Promise((resolve) =>
-          setTimeout(() => resolve({ session: null }), 2500)
-        );
-
-        const sessionPromise = supabase.auth.getSession();
-
-        const result: any = await Promise.race([
-          sessionPromise,
-          timeout,
-        ]);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const currentUser = sessionData?.session?.user ?? null;
 
         if (!mounted) return;
 
-        const session = result?.data?.session ?? null;
-        const currentUser = session?.user ?? null;
-
-        // 🔓 NÃO LOGADO (FORÇA SAIR DO LOADING)
         if (!currentUser) {
           setUser(null);
           setProfile(null);
@@ -56,49 +33,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(currentUser);
 
-        // 🔥 PROFILE COM TIMEOUT TAMBÉM
-        const profileTimeout = new Promise((resolve) =>
-          setTimeout(() => resolve({ data: null, error: null }), 2500)
-        );
-
-        const profilePromise = supabase
+        const { data, error } = await supabase
           .from("profiles")
           .select("*")
           .eq("id", currentUser.id)
           .maybeSingle();
 
-        const profileResult: any = await Promise.race([
-          profilePromise,
-          profileTimeout,
-        ]);
-
         if (!mounted) return;
 
-        if (!profileResult || profileResult.error) {
+        if (error) {
           setProfile(null);
           setProfileError(true);
         } else {
-          setProfile(profileResult.data || null);
+          setProfile(data ?? null);
           setProfileError(false);
         }
       } catch (err) {
-        console.error("Auth error:", err);
-
+        console.error(err);
         if (!mounted) return;
 
         setUser(null);
         setProfile(null);
         setProfileError(true);
       } finally {
-        if (mounted) setIsLoading(false); // 🔥 NUNCA trava
+        if (mounted) setIsLoading(false);
       }
     };
 
     init();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      init();
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!mounted) return;
+
+        setUser(session?.user ?? null);
+
+        // evita loop pesado
+        setTimeout(() => {
+          init();
+        }, 0);
+      }
+    );
 
     return () => {
       mounted = false;
@@ -106,10 +81,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  const role: Role = profile?.role ?? null;
-
-  const isApproved =
-    role === "admin" || profile?.status === "approved";
+  const role = profile?.role ?? null;
+  const isApproved = role === "admin" || profile?.status === "approved";
 
   return (
     <AuthContext.Provider
