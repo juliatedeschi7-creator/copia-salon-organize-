@@ -24,39 +24,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     let mounted = true;
 
-    const loadSession = async () => {
-      try {
-        setIsLoading(true);
+    const init = async () => {
+      setIsLoading(true);
 
-        // 🔥 pega sessão atual (safe)
-        const { data, error } = await supabase.auth.getSession();
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = data?.session ?? null;
 
         if (!mounted) return;
 
-        if (error) {
-          console.error("Session error:", error);
-          setUser(null);
-          setProfile(null);
-          setProfileError(true);
-          setIsLoading(false);
-          return;
-        }
-
-        const session = data?.session;
         const currentUser = session?.user ?? null;
 
+        setUser(currentUser);
+
         if (!currentUser) {
-          setUser(null);
           setProfile(null);
           setProfileError(false);
           setIsLoading(false);
           return;
         }
 
-        setUser(currentUser);
-
-        // 🔥 busca profile (seguro)
-        const { data: profileData, error: profileErr } = await supabase
+        const { data: profileData, error } = await supabase
           .from("profiles")
           .select("*")
           .eq("id", currentUser.id)
@@ -64,41 +52,33 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (!mounted) return;
 
-        if (profileErr) {
-          console.error("Profile error:", profileErr);
-          setProfile(null);
+        if (error) {
           setProfileError(true);
+          setProfile(null);
         } else {
           setProfile(profileData ?? null);
           setProfileError(false);
         }
       } catch (err) {
-        console.error("Auth crash:", err);
-
+        console.error(err);
         if (!mounted) return;
-
-        setUser(null);
-        setProfile(null);
         setProfileError(true);
+        setUser(null);
       } finally {
         if (mounted) setIsLoading(false);
       }
     };
 
-    // 🚀 inicializa uma vez
-    loadSession();
+    init();
 
-    // 🔥 listener de auth (SEM loop infinito)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-
       setUser(session?.user ?? null);
 
-      // evita race condition com getSession
+      // sincroniza sem reentrar init infinito
       setTimeout(() => {
-        loadSession();
+        init();
       }, 0);
     });
 
