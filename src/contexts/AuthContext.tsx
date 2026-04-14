@@ -6,40 +6,41 @@ const AuthContext = createContext<any>(null);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+
+  // 🔥 NUNCA trava app
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
-    const loadSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      const session = data?.session ?? null;
+    const init = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = data?.session ?? null;
 
-      if (!mounted) return;
+        if (!mounted) return;
 
-      const currentUser = session?.user ?? null;
-      setUser(currentUser);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
 
-      if (!currentUser) {
-        setLoading(false);
-        return;
+        if (!currentUser) return;
+
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", currentUser.id)
+          .maybeSingle();
+
+        if (!mounted) return;
+
+        setProfile(profileData ?? null);
+      } catch (err) {
+        console.error("Auth error:", err);
       }
-
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", currentUser.id)
-        .maybeSingle();
-
-      if (!mounted) return;
-
-      setProfile(profileData ?? null);
-      setLoading(false);
     };
 
-    loadSession();
+    init();
 
-    // 🚨 IMPORTANTE: listener SIMPLES (sem reiniciar init)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -60,7 +61,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         profile,
         isAuthenticated: !!user,
-        isLoading: loading,
+
+        // 🔥 SEMPRE false → nunca trava
+        isLoading: false,
+
         isApproved,
         role: profile?.role ?? null,
       }}
