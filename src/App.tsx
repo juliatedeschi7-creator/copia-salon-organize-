@@ -4,4 +4,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route
+        <Route path="/" element={<div>APP OK - TESTE LIMPO</div>} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
