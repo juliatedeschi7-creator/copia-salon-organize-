@@ -1,8 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-type Role = "admin" | "dono" | "funcionario" | "cliente" | null;
-
 const AuthContext = createContext<any>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -13,14 +11,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     let mounted = true;
 
-    // 🔥 TIMEOUT DE SEGURANÇA (NUNCA TRAVA APP)
-    const safetyTimeout = setTimeout(() => {
-      if (mounted) setLoading(false);
-    }, 2000);
-
-    const init = async () => {
+    const loadSession = async () => {
       const { data } = await supabase.auth.getSession();
-      const session = data?.session;
+      const session = data?.session ?? null;
 
       if (!mounted) return;
 
@@ -44,24 +37,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     };
 
-    init();
+    loadSession();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
+    // 🚨 IMPORTANTE: listener SIMPLES (sem reiniciar init)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
 
     return () => {
       mounted = false;
-      clearTimeout(safetyTimeout);
-      listener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
-  const role: Role = profile?.role ?? null;
-
-  const isApproved = role === "admin" || profile?.status === "approved";
+  const isApproved = profile?.status === "approved" || profile?.role === "admin";
 
   return (
     <AuthContext.Provider
@@ -71,7 +62,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         isAuthenticated: !!user,
         isLoading: loading,
         isApproved,
-        role,
+        role: profile?.role ?? null,
       }}
     >
       {children}
