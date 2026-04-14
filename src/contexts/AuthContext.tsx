@@ -3,96 +3,65 @@ import { supabase } from "@/integrations/supabase/client";
 
 type Role = "admin" | "dono" | "funcionario" | "cliente" | null;
 
-interface AuthContextType {
-  user: any;
-  profile: any;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  profileError: boolean;
-  isApproved: boolean;
-  role: Role;
-}
-
-const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+const AuthContext = createContext<any>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [profileError, setProfileError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
 
-    const loadAuth = async () => {
-      try {
-        setIsLoading(true);
+    // 🔥 TIMEOUT DE SEGURANÇA (NUNCA TRAVA APP)
+    const safetyTimeout = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 2000);
 
-        // 🔥 pega sessão atual (fonte real da verdade)
-        const { data } = await supabase.auth.getSession();
-        const session = data?.session ?? null;
+    const init = async () => {
+      const { data } = await supabase.auth.getSession();
+      const session = data?.session;
 
-        if (!mounted) return;
+      if (!mounted) return;
 
-        const currentUser = session?.user ?? null;
-        setUser(currentUser);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
 
-        // 🔓 não logado
-        if (!currentUser) {
-          setProfile(null);
-          setProfileError(false);
-          setIsLoading(false);
-          return;
-        }
-
-        // 🔥 busca profile
-        const { data: profileData, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", currentUser.id)
-          .maybeSingle();
-
-        if (!mounted) return;
-
-        if (error) {
-          setProfileError(true);
-          setProfile(null);
-        } else {
-          setProfile(profileData ?? null);
-          setProfileError(false);
-        }
-      } catch (err) {
-        console.error("Auth error:", err);
-
-        if (!mounted) return;
-
-        setUser(null);
-        setProfile(null);
-        setProfileError(true);
-      } finally {
-        if (mounted) setIsLoading(false);
+      if (!currentUser) {
+        setLoading(false);
+        return;
       }
+
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", currentUser.id)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      setProfile(profileData ?? null);
+      setLoading(false);
     };
 
-    loadAuth();
+    init();
 
-    // 🔥 listener simples (NÃO reinicializa tudo)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null);
+      }
+    );
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      clearTimeout(safetyTimeout);
+      listener.subscription.unsubscribe();
     };
   }, []);
 
   const role: Role = profile?.role ?? null;
 
-  const isApproved =
-    role === "admin" || profile?.status === "approved";
+  const isApproved = role === "admin" || profile?.status === "approved";
 
   return (
     <AuthContext.Provider
@@ -100,8 +69,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         profile,
         isAuthenticated: !!user,
-        isLoading,
-        profileError,
+        isLoading: loading,
         isApproved,
         role,
       }}
