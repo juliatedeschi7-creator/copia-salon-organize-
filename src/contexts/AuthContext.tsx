@@ -28,13 +28,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         setIsLoading(true);
 
-        // 🔥 timeout anti-trava (2s)
+        // 🔥 TIMEOUT ANTI-TRAVA (mobile safe)
         const timeout = new Promise((resolve) =>
-          setTimeout(() => resolve(null), 2000)
+          setTimeout(() => resolve({ session: null }), 2500)
         );
 
+        const sessionPromise = supabase.auth.getSession();
+
         const result: any = await Promise.race([
-          supabase.auth.getSession(),
+          sessionPromise,
           timeout,
         ]);
 
@@ -43,7 +45,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const session = result?.data?.session ?? null;
         const currentUser = session?.user ?? null;
 
-        // 🔓 NÃO LOGADO
+        // 🔓 NÃO LOGADO (FORÇA SAIR DO LOADING)
         if (!currentUser) {
           setUser(null);
           setProfile(null);
@@ -54,43 +56,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setUser(currentUser);
 
-        // 🔥 busca profile (sem travar app)
-        supabase
+        // 🔥 PROFILE COM TIMEOUT TAMBÉM
+        const profileTimeout = new Promise((resolve) =>
+          setTimeout(() => resolve({ data: null, error: null }), 2500)
+        );
+
+        const profilePromise = supabase
           .from("profiles")
           .select("*")
           .eq("id", currentUser.id)
-          .maybeSingle()
-          .then(({ data, error }) => {
-            if (!mounted) return;
+          .maybeSingle();
 
-            if (error) {
-              console.error("Erro profile:", error);
-              setProfile(null);
-              setProfileError(true);
-            } else {
-              setProfile(data || null);
-              setProfileError(false);
-            }
-          })
-          .finally(() => {
-            if (mounted) setIsLoading(false);
-          });
+        const profileResult: any = await Promise.race([
+          profilePromise,
+          profileTimeout,
+        ]);
+
+        if (!mounted) return;
+
+        if (!profileResult || profileResult.error) {
+          setProfile(null);
+          setProfileError(true);
+        } else {
+          setProfile(profileResult.data || null);
+          setProfileError(false);
+        }
       } catch (err) {
-        console.error("Erro auth:", err);
+        console.error("Auth error:", err);
 
         if (!mounted) return;
 
         setUser(null);
         setProfile(null);
         setProfileError(true);
-        setIsLoading(false);
+      } finally {
+        if (mounted) setIsLoading(false); // 🔥 NUNCA trava
       }
     };
 
     init();
 
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      if (!mounted) return;
       init();
     });
 
