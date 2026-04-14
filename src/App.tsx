@@ -42,12 +42,15 @@ const AppRoutes = () => {
     role,
     profile,
     profileError,
+    user,
   } = useAuth();
 
-  const { salon, isLoading: salonLoading } = useSalon();
+  const { salon } = useSalon();
 
-  // 🔥 1. loading AUTH (único que pode travar)
-  if (isLoading) {
+  // 🔥 NUNCA TRAVA APP POR AUTH
+  const isAppReady = !isLoading || !isAuthenticated;
+
+  if (!isAppReady) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -55,17 +58,8 @@ const AppRoutes = () => {
     );
   }
 
-  // 🔥 2. loading salão (SEM TRAVAR PRA SEMPRE)
-  if (salonLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
-  // 🔓 não logado
-  if (!isAuthenticated) {
+  // 🔓 NÃO LOGADO (FORÇA LOGIN APARECER)
+  if (!isAuthenticated || !user) {
     return (
       <Routes>
         <Route path="/convite/:linkId" element={<ClientInvitePage />} />
@@ -75,7 +69,16 @@ const AppRoutes = () => {
     );
   }
 
-  // ❌ erro perfil
+  // 🔥 AGUARDA PROFILE (EVITA ROLE NULL BUG)
+  if (!profile && !profileError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  // ❌ ERRO PROFILE
   if (profileError) {
     return (
       <Routes>
@@ -92,7 +95,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ❌ rejeitado
+  // ❌ REJEITADO
   if (profile?.status === "rejected") {
     return (
       <Routes>
@@ -109,7 +112,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ⏳ pendente
+  // ⏳ PENDENTE
   if (!isApproved && role !== "admin") {
     return (
       <Routes>
@@ -118,7 +121,7 @@ const AppRoutes = () => {
     );
   }
 
-  // 🏪 dono sem salão (AGORA CORRETO)
+  // 🏪 DONO SEM SALÃO
   if (role === "dono" && !salon) {
     return (
       <Routes>
@@ -127,7 +130,7 @@ const AppRoutes = () => {
     );
   }
 
-  // ✅ app normal
+  // ✅ APP NORMAL
   return (
     <Routes>
       <Route element={<AppLayout />}>
