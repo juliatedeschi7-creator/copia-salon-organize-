@@ -21,17 +21,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [profileError, setProfileError] = useState(false);
 
-  // ✅ NOVO: controle correto de inicialização da auth
-  const [authReady, setAuthReady] = useState(false);
-
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
+    const loadAuth = async () => {
       try {
         setIsLoading(true);
 
-        // 🔥 pega sessão do Supabase (fonte real da verdade)
+        // 🔥 pega sessão atual (fonte real da verdade)
         const { data } = await supabase.auth.getSession();
         const session = data?.session ?? null;
 
@@ -40,11 +37,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
 
-        // 🔥 SEM USUÁRIO
+        // 🔓 não logado
         if (!currentUser) {
           setProfile(null);
           setProfileError(false);
-          setAuthReady(true);
           setIsLoading(false);
           return;
         }
@@ -74,25 +70,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setProfile(null);
         setProfileError(true);
       } finally {
-        if (mounted) {
-          setAuthReady(true); // 🔥 IMPORTANTE: nunca deixa travado
-          setIsLoading(false);
-        }
+        if (mounted) setIsLoading(false);
       }
     };
 
-    init();
+    loadAuth();
 
-    // 🔥 listener de auth (login/logout em tempo real)
+    // 🔥 listener simples (NÃO reinicializa tudo)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-
-      // revalida profile sem travar UI
-      setTimeout(() => {
-        init();
-      }, 0);
     });
 
     return () => {
@@ -112,7 +100,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         profile,
         isAuthenticated: !!user,
-        isLoading: !authReady, // 🔥 FIX PRINCIPAL
+        isLoading,
         profileError,
         isApproved,
         role,
