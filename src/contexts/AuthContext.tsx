@@ -1,14 +1,26 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const AuthContext = createContext<any>(null);
+type Role = "admin" | "dono" | "funcionario" | "cliente" | null;
+
+interface AuthContextType {
+  user: any;
+  profile: any;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  isApproved: boolean;
+  role: Role;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
 
-  // 🔥 NUNCA trava app
-  const [loading, setLoading] = useState(false);
+  // 🔥 nunca trava app
+  const [loading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -23,7 +35,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
 
-        if (!currentUser) return;
+        if (!currentUser) {
+          setProfile(null);
+          return;
+        }
 
         const { data: profileData } = await supabase
           .from("profiles")
@@ -36,6 +51,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setProfile(profileData ?? null);
       } catch (err) {
         console.error("Auth error:", err);
+        if (!mounted) return;
+        setUser(null);
+        setProfile(null);
       }
     };
 
@@ -53,7 +71,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  const isApproved = profile?.status === "approved" || profile?.role === "admin";
+  // 🔥 logout corrigido
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+  };
+
+  const role: Role = profile?.role ?? null;
+
+  const isApproved =
+    role === "admin" || profile?.status === "approved";
 
   return (
     <AuthContext.Provider
@@ -62,11 +90,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         profile,
         isAuthenticated: !!user,
 
-        // 🔥 SEMPRE false → nunca trava
+        // 🔥 nunca trava
         isLoading: false,
 
         isApproved,
-        role: profile?.role ?? null,
+        role,
+        signOut,
       }}
     >
       {children}
