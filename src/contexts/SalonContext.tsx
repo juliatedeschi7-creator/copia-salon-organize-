@@ -23,44 +23,34 @@ interface SalonContextType {
   refetch: () => Promise<void>;
 }
 
-const SalonContext = createContext<SalonContextType>({
-  salon: undefined,
-  isLoading: false,
-  createSalon: async () => {},
-  updateSalon: async () => {},
-  refetch: async () => {},
-});
+const SalonContext = createContext<SalonContextType>({} as any);
 
 export const useSalon = () => useContext(SalonContext);
 
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
-  const { user, role, isAuthenticated } = useAuth();
+  const { user, role } = useAuth();
 
   const [salon, setSalon] = useState<Salon | null | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchSalon = async () => {
+    if (!user) {
+      setSalon(null);
+      return;
+    }
+
+    if (role === "cliente" || role === "admin") {
+      setSalon(null);
+      return;
+    }
+
     try {
-      // 🔥 NÃO bloqueia por role
-      if (!isAuthenticated || !user) {
-        setSalon(null);
-        return;
-      }
-
-      // 🔥 cliente/admin não usam salão
-      if (role === "cliente" || role === "admin") {
-        setSalon(null);
-        return;
-      }
-
       setIsLoading(true);
-      setSalon(undefined); // 🔥 estado de carregando REAL
 
       const { data: membership } = await supabase
         .from("salon_members")
         .select("salon_id")
         .eq("user_id", user.id)
-        .limit(1)
         .maybeSingle();
 
       if (!membership?.salon_id) {
@@ -74,9 +64,9 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         .eq("id", membership.salon_id)
         .maybeSingle();
 
-      setSalon(salonData || null);
+      setSalon(salonData ?? null);
     } catch (err) {
-      console.error("Erro salon:", err);
+      console.error("Salon error:", err);
       setSalon(null);
     } finally {
       setIsLoading(false);
@@ -84,10 +74,12 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    if (user) {
+    if (user?.id) {
       fetchSalon();
+    } else {
+      setSalon(null);
     }
-  }, [user?.id]);
+  }, [user?.id, role]);
 
   const createSalon = async (name: string) => {
     if (!user) return;
