@@ -1,32 +1,18 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-type Role = "admin" | "dono" | "funcionario" | "cliente" | null;
+const AuthContext = createContext<any>(null);
 
-interface AuthContextType {
-  user: any;
-  profile: any;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  isApproved: boolean;
-  role: Role;
-  signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType>({} as AuthContextType);
-
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = ({ children }: any) => {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
-
-  // 🔥 nunca trava app
-  const [loading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
     const init = async () => {
       try {
+        // 🔥 pega sessão
         const { data } = await supabase.auth.getSession();
         const session = data?.session ?? null;
 
@@ -35,11 +21,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
 
+        // 🔓 se não tem usuário → NÃO trava
         if (!currentUser) {
           setProfile(null);
           return;
         }
 
+        // 🔥 busca perfil
         const { data: profileData } = await supabase
           .from("profiles")
           .select("*")
@@ -50,8 +38,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         setProfile(profileData ?? null);
       } catch (err) {
-        console.error("Auth error:", err);
-        if (!mounted) return;
+        console.error("Auth erro:", err);
         setUser(null);
         setProfile(null);
       }
@@ -59,6 +46,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     init();
 
+    // 🔥 listener simples (sem re-init bugado)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -71,17 +59,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  // 🔥 logout corrigido
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-  };
-
-  const role: Role = profile?.role ?? null;
-
   const isApproved =
-    role === "admin" || profile?.status === "approved";
+    profile?.status === "approved" || profile?.role === "admin";
 
   return (
     <AuthContext.Provider
@@ -89,13 +68,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         user,
         profile,
         isAuthenticated: !!user,
-
-        // 🔥 nunca trava
-        isLoading: false,
-
         isApproved,
-        role,
-        signOut,
+        role: profile?.role ?? null,
       }}
     >
       {children}
