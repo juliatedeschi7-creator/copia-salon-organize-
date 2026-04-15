@@ -11,7 +11,7 @@ import NotFound from "@/pages/NotFound";
 
 export default function AppRoutes() {
   const { user, role, isApproved } = useAuth();
-  const { salon } = useSalon();
+  const { salon, isLoading } = useSalon();  // 👈 adiciona isLoading
 
   // 🔓 NÃO LOGADO → LOGIN
   if (!user) {
@@ -19,6 +19,15 @@ export default function AppRoutes() {
       <Routes>
         <Route path="*" element={<AuthPage />} />
       </Routes>
+    );
+  }
+
+  // ⏳ AGUARDA SALÃO CARREGAR  👈 bloco novo
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500" />
+      </div>
     );
   }
 
@@ -46,7 +55,6 @@ export default function AppRoutes() {
       <Route element={<AppLayout />}>
         <Route path="/" element={<DashboardPage />} />
       </Route>
-
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
