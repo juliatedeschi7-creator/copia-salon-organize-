@@ -16,38 +16,49 @@ interface Salon {
 
 interface SalonContextType {
   salon: Salon | null;
+  isLoading: boolean;
 }
 
 const SalonContext = createContext<SalonContextType>({
   salon: null,
+  isLoading: false,
 });
 
 export const useSalon = () => useContext(SalonContext);
 
 export const SalonProvider = ({ children }: { children: ReactNode }) => {
-  const { user, isAuthenticated, role } = useAuth();
+  const { user, role, isAuthenticated } = useAuth();
+
   const [salon, setSalon] = useState<Salon | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
+
     const fetchSalon = async () => {
       try {
-        // 🔥 NÃO LOGADO → SEM SALÃO
+        // 🔥 NÃO LOGADO → NÃO FAZ NADA
         if (!isAuthenticated || !user) {
           setSalon(null);
           return;
         }
 
-        // 🔥 cliente/admin não usam salão
+        // 🔥 CLIENTE/ADMIN NÃO TEM SALÃO
         if (role === "cliente" || role === "admin") {
           setSalon(null);
           return;
         }
 
+        setIsLoading(true);
+
         const { data: membership } = await supabase
           .from("salon_members")
           .select("salon_id")
           .eq("user_id", user.id)
+          .limit(1)
           .maybeSingle();
+
+        if (!mounted) return;
 
         if (!membership?.salon_id) {
           setSalon(null);
@@ -60,18 +71,26 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
           .eq("id", membership.salon_id)
           .maybeSingle();
 
+        if (!mounted) return;
+
         setSalon(salonData || null);
       } catch (err) {
         console.error("Erro salon:", err);
         setSalon(null);
+      } finally {
+        if (mounted) setIsLoading(false);
       }
     };
 
     fetchSalon();
-  }, [user?.id, isAuthenticated, role]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id, role, isAuthenticated]);
 
   return (
-    <SalonContext.Provider value={{ salon }}>
+    <SalonContext.Provider value={{ salon, isLoading }}>
       {children}
     </SalonContext.Provider>
   );
