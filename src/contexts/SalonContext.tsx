@@ -40,12 +40,14 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
         // 🔥 NÃO LOGADO → NÃO FAZ NADA
         if (!isAuthenticated || !user) {
           setSalon(null);
+          setIsLoading(false);
           return;
         }
 
         // 🔥 CLIENTE/ADMIN NÃO TEM SALÃO
         if (role === "cliente" || role === "admin") {
           setSalon(null);
+          setIsLoading(false);
           return;
         }
 
@@ -62,6 +64,7 @@ export const SalonProvider = ({ children }: { children: ReactNode }) => {
 
         if (!membership?.salon_id) {
           setSalon(null);
+          setIsLoading(false);
           return;
         }
 
