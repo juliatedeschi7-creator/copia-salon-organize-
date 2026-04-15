@@ -4,14 +4,16 @@ import { useSalon } from "@/contexts/SalonContext";
 
 import AppLayout from "@/components/AppLayout";
 import AuthPage from "@/pages/AuthPage";
+import PendingApprovalPage from "@/pages/PendingApprovalPage";
+import CreateSalonPage from "@/pages/CreateSalonPage";
 import DashboardPage from "@/pages/DashboardPage";
 import NotFound from "@/pages/NotFound";
 
 export default function AppRoutes() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isApproved, role } = useAuth();
   const { salon } = useSalon();
 
-  // NÃO LOGADO → LOGIN
+  // 🔓 NÃO LOGADO → LOGIN
   if (!isAuthenticated || !user) {
     return (
       <Routes>
@@ -20,7 +22,25 @@ export default function AppRoutes() {
     );
   }
 
-  // LOGADO → APP
+  // ⏳ NÃO APROVADO
+  if (role !== "admin" && !isApproved) {
+    return (
+      <Routes>
+        <Route path="*" element={<PendingApprovalPage />} />
+      </Routes>
+    );
+  }
+
+  // 🏪 DONO SEM SALÃO
+  if (role === "dono" && !salon) {
+    return (
+      <Routes>
+        <Route path="*" element={<CreateSalonPage />} />
+      </Routes>
+    );
+  }
+
+  // ✅ APP NORMAL
   return (
     <Routes>
       <Route element={<AppLayout />}>
