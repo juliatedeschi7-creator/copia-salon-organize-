@@ -10,11 +10,20 @@ import DashboardPage from "@/pages/DashboardPage";
 import NotFound from "@/pages/NotFound";
 
 export default function AppRoutes() {
-  const { isAuthenticated, user, isApproved, role } = useAuth();
-  const { salon } = useSalon();
+  const auth = useAuth();
+  const salonCtx = useSalon();
 
-  // 🔓 NÃO LOGADO → LOGIN
-  if (!isAuthenticated || !user) {
+  const user = auth?.user ?? null;
+  const role = auth?.role ?? null;
+  const isApproved = auth?.isApproved ?? false;
+  const isAuthenticated = !!user;
+
+  const salon = salonCtx?.salon ?? null;
+
+  // 🔥 GARANTE QUE SEMPRE MOSTRA ALGO
+
+  // NÃO LOGADO
+  if (!user) {
     return (
       <Routes>
         <Route path="*" element={<AuthPage />} />
@@ -22,7 +31,7 @@ export default function AppRoutes() {
     );
   }
 
-  // ⏳ NÃO APROVADO
+  // NÃO APROVADO
   if (role !== "admin" && !isApproved) {
     return (
       <Routes>
@@ -31,7 +40,7 @@ export default function AppRoutes() {
     );
   }
 
-  // 🏪 DONO SEM SALÃO
+  // DONO SEM SALÃO
   if (role === "dono" && !salon) {
     return (
       <Routes>
@@ -40,7 +49,7 @@ export default function AppRoutes() {
     );
   }
 
-  // ✅ APP NORMAL
+  // APP NORMAL
   return (
     <Routes>
       <Route element={<AppLayout />}>
