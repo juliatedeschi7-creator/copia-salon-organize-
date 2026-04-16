@@ -13,10 +13,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-
 import AppointmentCard from "@/components/agenda/AppointmentCard";
 import AppointmentFormDialog from "@/components/agenda/AppointmentFormDialog";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,8 +25,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-/* ================= TYPES ================= */
 
 interface Appointment {
   id: string;
@@ -41,10 +37,9 @@ interface Appointment {
   service_id: string;
   salon_id: string;
   created_at: string;
-
   service_name?: string;
   client_name?: string;
-
+  whatsapp_code?: string;
   whatsapp_confirmed_at?: string | null;
 }
 
@@ -58,230 +53,611 @@ interface AvailableSlot {
   service_name?: string;
 }
 
-interface RecurringClient {
+interface Service {
   id: string;
-  salon_id: string;
-  client_user_id: string;
-  service_id: string;
-  day_of_week: number;
-  start_time: string;
-  end_time: string;
-  is_active: boolean;
+  name: string;
 }
 
-interface BlockedPeriod {
+interface BlockedDate {
   id: string;
-  salon_id: string;
   blocked_date: string;
-  start_time: string;
-  end_time: string;
+  reason: string | null;
+  created_at: string;
 }
 
-/* ================= CONSTANTS ================= */
-
-const DAYS = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
-
-/* ================= COMPONENT ================= */
+const DAYS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const POSTGRES_UNIQUE_VIOLATION = "23505";
 
 const AgendaPage = () => {
   const { salon } = useSalon();
   const { user } = useAuth();
 
-/* ================= STATE ================= */
-
+  // ── Appointments ──────────────────────────────────────────────
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [slots, setSlots] = useState<AvailableSlot[]>([]);
-  const [recurringClients, setRecurringClients] = useState<RecurringClient[]>([]);
-  const [blockedPeriods, setBlockedPeriods] = useState<BlockedPeriod[]>([]);
-
-  const [loading, setLoading] = useState(true);
-
+  const [loadingAppts, setLoadingAppts] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-/* ================= HELPERS ================= */
+  // ── Slots ──────────────────────────────────────────────────────
+  const [slots, setSlots] = useState<AvailableSlot[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(true);
+  const [newSlotDay, setNewSlotDay] = useState<string>("");
+  const [newSlotService, setNewSlotService] = useState("");
+  const [newSlotStart, setNewSlotStart] = useState("");
+  const [newSlotEnd, setNewSlotEnd] = useState("");
+  const [savingSlot, setSavingSlot] = useState(false);
 
-  const isBlocked = (date: string, start: string, end: string) => {
-    return blockedPeriods.some(b =>
-      b.blocked_date === date &&
-      start < b.end_time &&
-      end > b.start_time
-    );
-  };
+  // ── Blocked dates ──────────────────────────────────────────────
+  const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
+  const [loadingBlocked, setLoadingBlocked] = useState(true);
+  const [newBlockDate, setNewBlockDate] = useState("");
+  const [newBlockReason, setNewBlockReason] = useState("");
+  const [savingBlock, setSavingBlock] = useState(false);
+  const [unblockingId, setUnblockingId] = useState<string | null>(null);
 
-/* ================= FETCH ================= */
-
+  // ── Fetch appointments ─────────────────────────────────────────
   const fetchAppointments = async () => {
     if (!salon) return;
-
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("appointments")
       .select("*")
       .eq("salon_id", salon.id)
-      .order("appointment_date", { ascending: true });
+      .order("appointment_date", { ascending: true })
+      .order("start_time", { ascending: true });
 
-    const serviceIds = [...new Set((data || []).map(a => a.service_id))];
-    const clientIds = [...new Set((data || []).map(a => a.client_user_id))];
+    if (error) { console.error(error); setLoadingAppts(false); return; }
+
+    const serviceIds = [...new Set((data || []).map((a: any) => a.service_id))];
+    const clientIds = [...new Set((data || []).map((a: any) => a.client_user_id))];
 
     const [servicesRes, profilesRes] = await Promise.all([
-      supabase.from("services").select("id,name").in("id", serviceIds),
-      supabase.from("profiles").select("user_id,name").in("user_id", clientIds),
+      serviceIds.length > 0
+        ? supabase.from("services").select("id, name").in("id", serviceIds)
+        : Promise.resolve({ data: [] }),
+      clientIds.length > 0
+        ? supabase.from("profiles").select("user_id, name").in("user_id", clientIds)
+        : Promise.resolve({ data: [] }),
     ]);
 
-    const serviceMap = Object.fromEntries((servicesRes.data || []).map(s => [s.id, s.name]));
-    const clientMap = Object.fromEntries((profilesRes.data || []).map(p => [p.user_id, p.name]));
+    const serviceMap = Object.fromEntries((servicesRes.data || []).map((s: any) => [s.id, s.name]));
+    const profileMap = Object.fromEntries((profilesRes.data || []).map((p: any) => [p.user_id, p.name]));
 
     setAppointments(
-      (data || []).map(a => ({
+      (data || []).map((a: any) => ({
         ...a,
         service_name: serviceMap[a.service_id] || "Serviço",
-        client_name: clientMap[a.client_user_id] || "Cliente",
+        client_name: profileMap[a.client_user_id] || "Cliente",
       }))
     );
-
-    setLoading(false);
+    setLoadingAppts(false);
   };
 
-  const fetchRecurring = async () => {
-    const { data } = await supabase
-      .from("recurring_clients")
+  // ── Fetch slots ────────────────────────────────────────────────
+  const fetchSlots = async () => {
+    if (!salon) return;
+    const [slotsRes, servicesRes] = await Promise.all([
+      supabase.from("available_slots").select("*").eq("salon_id", salon.id).order("day_of_week").order("start_time"),
+      supabase.from("services").select("id, name").eq("salon_id", salon.id).eq("is_active", true),
+    ]);
+    const serviceMap = Object.fromEntries((servicesRes.data || []).map((s: any) => [s.id, s.name]));
+    setSlots((slotsRes.data || []).map((sl: any) => ({ ...sl, service_name: serviceMap[sl.service_id] || "Serviço" })));
+    setServices((servicesRes.data || []) as Service[]);
+    setLoadingSlots(false);
+  };
+
+  // ── Fetch blocked dates ────────────────────────────────────────
+  const fetchBlockedDates = async () => {
+    if (!salon) return;
+    const { data, error } = await supabase
+      .from("blocked_dates")
       .select("*")
       .eq("salon_id", salon.id)
-      .eq("is_active", true);
-
-    setRecurringClients(data || []);
+      .order("blocked_date", { ascending: true });
+    if (error) { console.error(error); }
+    setBlockedDates((data || []) as BlockedDate[]);
+    setLoadingBlocked(false);
   };
 
-  const fetchBlocked = async () => {
-    const { data } = await supabase
-      .from("blocked_periods")
-      .select("*")
-      .eq("salon_id", salon.id);
+  useEffect(() => {
+    fetchAppointments();
+    fetchSlots();
+    fetchBlockedDates();
+  }, [salon]);
 
-    setBlockedPeriods(data || []);
-  };
+  // ── Realtime appointments ──────────────────────────────────────
+  useEffect(() => {
+    if (!salon) return;
+    const channel = supabase
+      .channel("appointments-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "appointments", filter: `salon_id=eq.${salon.id}` }, () => {
+        fetchAppointments();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [salon]);
 
-/* ================= RECURRING ================= */
+  // ── Appointment actions ────────────────────────────────────────
+  const handleUpdateStatus = async (a: Appointment, newStatus: string) => {
+    if (!salon || !user) return;
+    const { error } = await supabase.from("appointments").update({ status: newStatus }).eq("id", a.id);
+    if (error) { toast.error("Erro ao atualizar: " + error.message); return; }
 
-  const generateRecurring = async () => {
-    for (const rc of recurringClients) {
-      const next = new Date();
-      while (next.getDay() !== rc.day_of_week) {
-        next.setDate(next.getDate() + 1);
-      }
+    const titleMap: Record<string, string> = {
+      aprovado: "Agendamento confirmado! ✅",
+      recusado: "Agendamento recusado",
+      concluido: "Atendimento concluído! ✨",
+    };
+    const messageMap: Record<string, string> = {
+      aprovado: `Seu agendamento de ${a.service_name} foi aprovado pelo salão.`,
+      recusado: `Seu agendamento de ${a.service_name} foi recusado pelo salão.`,
+      concluido: `Seu atendimento de ${a.service_name} foi concluído. Obrigado!`,
+    };
 
-      const dateStr = next.toISOString().split("T")[0];
+    await supabase.from("notifications").insert({
+      user_id: a.client_user_id,
+      salon_id: salon.id,
+      type: newStatus === "concluido" ? "agendamento_concluido" : newStatus === "aprovado" ? "agendamento_aprovado" : "agendamento_recusado",
+      title: titleMap[newStatus] || "Atualização",
+      message: messageMap[newStatus] || `Seu agendamento de ${a.service_name} foi atualizado.`,
+      reference_id: a.id,
+    });
 
-      const exists = await supabase
-        .from("appointments")
-        .select("id")
-        .eq("client_user_id", rc.client_user_id)
-        .eq("appointment_date", dateStr);
-
-      if (exists.data?.length) continue;
-
-      if (isBlocked(dateStr, rc.start_time, rc.end_time)) continue;
-
-      await supabase.from("appointments").insert({
-        salon_id: salon.id,
-        client_user_id: rc.client_user_id,
-        service_id: rc.service_id,
-        appointment_date: dateStr,
-        start_time: rc.start_time,
-        end_time: rc.end_time,
-        status: "pendente",
-        notes: "Automático (cliente fixo)",
-      });
-    }
-  };
-
-/* ================= ACTIONS ================= */
-
-  const handleCreate = async (payload: any) => {
-    if (isBlocked(payload.appointment_date, payload.start_time, payload.end_time)) {
-      toast.error("Horário bloqueado");
-      return;
-    }
-
-    await supabase.from("appointments").insert(payload);
+    const toastMap: Record<string, string> = { aprovado: "Agendamento aprovado!", recusado: "Agendamento recusado.", concluido: "Atendimento concluído!" };
+    toast.success(toastMap[newStatus] || "Status atualizado.");
     fetchAppointments();
   };
 
-  const handleNoShow = async (a: Appointment) => {
-    await supabase.from("appointments").update({ status: "faltou" }).eq("id", a.id);
-    toast.success("Marcado como falta");
+  const handleConfirmWhatsApp = async (a: Appointment) => {
+    if (!user) return;
+    const { error } = await supabase
+      .from("appointments")
+      .update({ whatsapp_confirmed_at: new Date().toISOString(), whatsapp_confirmed_by: user.id })
+      .eq("id", a.id);
+    if (error) { toast.error("Erro ao confirmar WhatsApp: " + error.message); return; }
+    toast.success("WhatsApp confirmado! Agora você pode aprovar o agendamento.");
     fetchAppointments();
   };
 
   const handleDelete = async () => {
     if (!deletingId) return;
-    await supabase.from("appointments").delete().eq("id", deletingId);
+    const { error } = await supabase.from("appointments").delete().eq("id", deletingId);
+    if (error) { toast.error("Erro ao excluir: " + error.message); }
+    else { toast.success("Agendamento excluído."); }
     setDeletingId(null);
     fetchAppointments();
   };
 
-/* ================= EFFECTS ================= */
+  // ── Slot actions ───────────────────────────────────────────────
+  const handleToggleSlot = async (slot: AvailableSlot) => {
+    const { error } = await supabase.from("available_slots").update({ is_active: !slot.is_active }).eq("id", slot.id);
+    if (error) { toast.error("Erro: " + error.message); return; }
+    toast.success(slot.is_active ? "Horário desativado." : "Horário ativado.");
+    fetchSlots();
+  };
 
-  useEffect(() => {
-    if (!salon) return;
+  const handleDeleteSlot = async (id: string) => {
+    const { error } = await supabase.from("available_slots").delete().eq("id", id);
+    if (error) { toast.error("Erro: " + error.message); return; }
+    toast.success("Horário removido.");
+    fetchSlots();
+  };
 
-    fetchAppointments();
-    fetchRecurring();
-    fetchBlocked();
-  }, [salon]);
+  const handleAddSlot = async () => {
+    if (!salon || !newSlotDay || !newSlotService || !newSlotStart || !newSlotEnd) {
+      toast.error("Preencha todos os campos do horário."); return;
+    }
+    if (newSlotStart >= newSlotEnd) {
+      toast.error("O horário de início deve ser anterior ao horário de fim."); return;
+    }
+    setSavingSlot(true);
+    const { error } = await supabase.from("available_slots").insert({
+      salon_id: salon.id,
+      day_of_week: parseInt(newSlotDay),
+      service_id: newSlotService,
+      start_time: newSlotStart,
+      end_time: newSlotEnd,
+      is_active: true,
+    });
+    setSavingSlot(false);
+    if (error) { toast.error("Erro: " + error.message); return; }
+    toast.success("Horário adicionado!");
+    setNewSlotDay(""); setNewSlotService(""); setNewSlotStart(""); setNewSlotEnd("");
+    fetchSlots();
+  };
 
-  useEffect(() => {
-    if (recurringClients.length) generateRecurring();
-  }, [recurringClients]);
+  // ── Blocked date actions ───────────────────────────────────────
+  const handleBlockDate = async () => {
+    if (!salon || !newBlockDate) { toast.error("Selecione uma data para bloquear."); return; }
+    setSavingBlock(true);
+    const { error } = await supabase.from("blocked_dates").insert({
+      salon_id: salon.id,
+      blocked_date: newBlockDate,
+      reason: newBlockReason || null,
+      created_by: user?.id ?? null,
+    });
+    setSavingBlock(false);
+    if (error) {
+      if (error.code === POSTGRES_UNIQUE_VIOLATION) toast.error("Esta data já está bloqueada.");
+      else toast.error("Erro: " + error.message);
+      return;
+    }
+    toast.success("Data bloqueada com sucesso!");
+    setNewBlockDate(""); setNewBlockReason("");
+    fetchBlockedDates();
+  };
 
-/* ================= UI ================= */
+  const handleUnblockDate = async (id: string) => {
+    const { error } = await supabase.from("blocked_dates").delete().eq("id", id);
+    if (error) { toast.error("Erro: " + error.message); return; }
+    toast.success("Data desbloqueada.");
+    setUnblockingId(null);
+    fetchBlockedDates();
+  };
+
+  // ── Derived data ───────────────────────────────────────────────
+  const today = format(new Date(), "yyyy-MM-dd");
+  const todayAppointments = appointments.filter((a) => a.appointment_date === today);
+  const pendingAppointments = appointments.filter((a) => a.status === "pendente");
+  const futureAppointments = appointments.filter((a) => a.appointment_date >= today && a.status !== "pendente");
+
+  const slotsByDay = DAYS.map((dayName, dayIndex) => ({
+    dayName,
+    dayIndex,
+    slots: slots.filter((sl) => sl.day_of_week === dayIndex),
+  }));
+
+  const upcomingBlockedDates = blockedDates.filter((b) => b.blocked_date >= today);
+  const pastBlockedDates = blockedDates.filter((b) => b.blocked_date < today);
 
   return (
     <div className="space-y-6">
-
-      <div className="flex justify-between">
-        <h1 className="text-2xl font-bold">Agenda</h1>
-
-        <Button onClick={() => setFormOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Novo
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Agenda</h1>
+          <p className="text-sm text-muted-foreground">Gerencie os agendamentos e horários do seu salão</p>
+        </div>
+        <Button className="gap-2" onClick={() => { setEditingAppointment(null); setFormOpen(true); }}>
+          <Plus className="h-4 w-4" /> Novo agendamento
         </Button>
       </div>
 
-      {loading ? (
-        <Loader2 className="animate-spin" />
-      ) : (
-        <div className="space-y-3">
-          {appointments.map(a => (
-            <AppointmentCard
-              key={a.id}
-              appointment={a}
-              onEdit={() => { setEditingAppointment(a); setFormOpen(true); }}
-              onDelete={() => setDeletingId(a.id)}
-              onNoShow={() => handleNoShow(a)}
-            />
-          ))}
-        </div>
-      )}
+      <Tabs defaultValue="agendamentos">
+        <TabsList className="mb-4">
+          <TabsTrigger value="agendamentos" className="gap-2">
+            Agendamentos
+            {pendingAppointments.length > 0 && (
+              <Badge className="h-5 min-w-[20px] rounded-full px-1 text-xs bg-yellow-500 text-white">
+                {pendingAppointments.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="horarios">Horários da Semana</TabsTrigger>
+          <TabsTrigger value="bloqueios">Datas Bloqueadas</TabsTrigger>
+        </TabsList>
 
+        {/* ── TAB: Agendamentos ── */}
+        <TabsContent value="agendamentos" className="space-y-6">
+          {pendingAppointments.length > 0 && (
+            <Card className="border-yellow-500/30">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg text-yellow-700">
+                  <Clock className="h-5 w-5" />
+                  Aguardando aprovação ({pendingAppointments.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {pendingAppointments.map((a) => (
+                  <AppointmentCard
+                    key={a.id}
+                    appointment={a}
+                    showDate
+                    onConfirmWhatsApp={handleConfirmWhatsApp}
+                    onApprove={(ap) => handleUpdateStatus(ap, "aprovado")}
+                    onReject={(ap) => handleUpdateStatus(ap, "recusado")}
+                    onEdit={(ap) => { setEditingAppointment(ap); setFormOpen(true); }}
+                    onDelete={(ap) => setDeletingId(ap.id)}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Calendar className="h-5 w-5 text-primary" />
+                Agendamentos de hoje — {format(new Date(), "dd 'de' MMMM", { locale: ptBR })}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingAppts ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+              ) : todayAppointments.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Nenhum agendamento para hoje</p>
+              ) : (
+                <div className="space-y-3">
+                  {todayAppointments.map((a) => (
+                    <AppointmentCard
+                      key={a.id}
+                      appointment={a}
+                      onComplete={(ap) => handleUpdateStatus(ap, "concluido")}
+                      onEdit={(ap) => { setEditingAppointment(ap); setFormOpen(true); }}
+                      onDelete={(ap) => setDeletingId(ap.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {futureAppointments.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Próximos agendamentos</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {futureAppointments.slice(0, 10).map((a) => (
+                  <AppointmentCard
+                    key={a.id}
+                    appointment={a}
+                    showDate
+                    onComplete={(ap) => handleUpdateStatus(ap, "concluido")}
+                    onEdit={(ap) => { setEditingAppointment(ap); setFormOpen(true); }}
+                    onDelete={(ap) => setDeletingId(ap.id)}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ── TAB: Horários da Semana ── */}
+        <TabsContent value="horarios" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Adicionar horário fixo</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="space-y-1">
+                  <Label>Dia da semana</Label>
+                  <Select value={newSlotDay} onValueChange={setNewSlotDay}>
+                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectContent>
+                      {DAYS.map((d, i) => (
+                        <SelectItem key={i} value={String(i)}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Serviço</Label>
+                  <Select value={newSlotService} onValueChange={setNewSlotService}>
+                    <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                    <SelectContent>
+                      {services.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Início</Label>
+                  <Input type="time" value={newSlotStart} onChange={(e) => setNewSlotStart(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Fim</Label>
+                  <Input type="time" value={newSlotEnd} onChange={(e) => setNewSlotEnd(e.target.value)} />
+                </div>
+                <div className="flex items-end">
+                  <Button onClick={handleAddSlot} disabled={savingSlot} className="w-full gap-2">
+                    {savingSlot ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Adicionar
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {loadingSlots ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+          ) : (
+            <div className="space-y-4">
+              {slotsByDay.map(({ dayName, dayIndex, slots: daySlots }) =>
+                daySlots.length > 0 ? (
+                  <Card key={dayIndex}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">{dayName}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {daySlots.map((sl) => (
+                        <div key={sl.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                          <div className="flex items-center gap-3">
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm font-medium">
+                                {sl.start_time.slice(0, 5)} – {sl.end_time.slice(0, 5)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{sl.service_name}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={sl.is_active ? "border-green-500/30 bg-green-500/10 text-green-700" : "border-muted text-muted-foreground"}>
+                              {sl.is_active ? "Ativo" : "Inativo"}
+                            </Badge>
+                            <Button size="sm" variant="outline" onClick={() => handleToggleSlot(sl)} title={sl.is_active ? "Desativar" : "Ativar"}>
+                              {sl.is_active ? <XCircle className="h-4 w-4 text-yellow-600" /> : <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleDeleteSlot(sl.id)} title="Remover">
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                ) : null
+              )}
+              {slots.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Nenhum horário fixo cadastrado. Adicione acima.
+                </p>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── TAB: Datas Bloqueadas ── */}
+        <TabsContent value="bloqueios" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Bloquear uma data</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>Data a bloquear</Label>
+                  <Input type="date" value={newBlockDate} onChange={(e) => setNewBlockDate(e.target.value)} min={today} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Motivo (opcional)</Label>
+                  <Input
+                    placeholder="Ex: Casamento, Feriado..."
+                    value={newBlockReason}
+                    onChange={(e) => setNewBlockReason(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button onClick={handleBlockDate} disabled={savingBlock || !newBlockDate} className="w-full gap-2">
+                    {savingBlock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                    Bloquear data
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {loadingBlocked ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+          ) : (
+            <>
+              {upcomingBlockedDates.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Próximas datas bloqueadas</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {upcomingBlockedDates.map((b) => (
+                      <div key={b.id} className="flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+                        <div className="flex items-center gap-3">
+                          <Ban className="h-4 w-4 text-destructive" />
+                          <div>
+                            <p className="text-sm font-medium">
+                              {format(new Date(b.blocked_date + "T00:00:00"), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                            </p>
+                            {b.reason && <p className="text-xs text-muted-foreground">{b.reason}</p>}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 text-destructive hover:bg-destructive/10"
+                          onClick={() => setUnblockingId(b.id)}
+                        >
+                          <Trash2 className="h-4 w-4" /> Desbloquear
+                        </Button>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {pastBlockedDates.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base text-muted-foreground">Datas anteriores bloqueadas</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {pastBlockedDates.map((b) => (
+                      <div key={b.id} className="flex items-center justify-between rounded-lg border border-border p-3 opacity-60">
+                        <div className="flex items-center gap-3">
+                          <Ban className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium">
+                              {format(new Date(b.blocked_date + "T00:00:00"), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                            </p>
+                            {b.reason && <p className="text-xs text-muted-foreground">{b.reason}</p>}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1 text-muted-foreground"
+                          onClick={() => setUnblockingId(b.id)}
+                        >
+                          <Trash2 className="h-4 w-4" /> Remover
+                        </Button>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {blockedDates.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Nenhuma data bloqueada. Use o formulário acima para fechar um dia específico.
+                </p>
+              )}
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* Form Dialog */}
       <AppointmentFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
-        appointment={editingAppointment}
         onSuccess={fetchAppointments}
+        appointment={editingAppointment}
       />
 
-      {/* DELETE */}
-      <AlertDialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
+      {/* Delete appointment confirmation */}
+      <AlertDialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>
         <AlertDialogContent>
-          <AlertDialogTitle>Excluir?</AlertDialogTitle>
-          <AlertDialogAction onClick={handleDelete}>
-            Sim
-          </AlertDialogAction>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir agendamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. O agendamento será removido permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Unblock date confirmation */}
+      <AlertDialog open={!!unblockingId} onOpenChange={(open) => !open && setUnblockingId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desbloquear data?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A data voltará a estar disponível para agendamentos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => unblockingId && handleUnblockDate(unblockingId)}>
+              Desbloquear
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
