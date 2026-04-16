@@ -38,21 +38,37 @@ function createMemoryStorage(): Storage {
   } as Storage;
 }
 
+// ✅ MELHORADO: Detecção robusta de modo privado/incógnito
 function safeStorage(): Storage {
+  // Testa localStorage com erro apropriado
   try {
-    const k = "__test__";
-    localStorage.setItem(k, "1");
-    localStorage.removeItem(k);
+    const test = "__storage_test_" + Math.random();
+    localStorage.setItem(test, "1");
+    localStorage.removeItem(test);
     return localStorage;
-  } catch {}
+  } catch (e: any) {
+    // Se lançou QuotaExceededError em modo privado, usa fallback
+    if (e.name === "QuotaExceededError") {
+      console.warn("⚠️ Modo privado detectado - usando storage em memória");
+      return createMemoryStorage();
+    }
+  }
 
+  // Testa sessionStorage como fallback
   try {
-    const k = "__test__";
-    sessionStorage.setItem(k, "1");
-    sessionStorage.removeItem(k);
+    const test = "__storage_test_" + Math.random();
+    sessionStorage.setItem(test, "1");
+    sessionStorage.removeItem(test);
     return sessionStorage;
-  } catch {}
+  } catch (e: any) {
+    if (e.name === "QuotaExceededError") {
+      console.warn("⚠️ Modo privado/sessionStorage desativado - usando storage em memória");
+      return createMemoryStorage();
+    }
+  }
 
+  // Fallback final
+  console.warn("⚠️ Storage desativado - usando memória");
   return createMemoryStorage();
 }
 
